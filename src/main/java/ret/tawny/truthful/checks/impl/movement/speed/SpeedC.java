@@ -11,11 +11,11 @@ import ret.tawny.truthful.checks.api.data.CheckType;
 import ret.tawny.truthful.data.PlayerData;
 import ret.tawny.truthful.wrapper.impl.client.position.RelMovePacketWrapper;
 
-@CheckData(order = 'B', type = CheckType.SPEED)
+@CheckData(order = 'C', type = CheckType.SPEED)
 @SuppressWarnings("unused")
-public final class SpeedB extends Check {
+public final class SpeedC extends Check {
 
-    private final CheckBuffer buffer = new CheckBuffer(15.0);
+    private final CheckBuffer buffer = new CheckBuffer(20.0);
 
     @Override
     public void handleRelMove(final RelMovePacketWrapper relMovePacketWrapper) {
@@ -23,33 +23,19 @@ public final class SpeedB extends Check {
 
         final Player player = relMovePacketWrapper.getPlayer();
         final PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
-        if (data == null || !data.isOnGround() || data.isTeleportTick()) return;
 
-        // EXEMPTION: Forgive acceleration for the first 3 ticks after landing to allow for sprint-jumping.
-        if (data.getTicksOnGround() < 3) {
-            buffer.decrease(player, 1.0);
-            return;
-        }
-
-        if (data.isCollidedHorizontally()) return;
+        if (data == null || data.isOnGround() || data.isTeleportTick() || data.getTicksInAir() < 2) return;
+        if (player.getAllowFlight() || player.isGliding() || data.isInLiquid() || data.isOnClimbable()) return;
 
         double deltaXZ = data.getDeltaXZ();
         double lastDeltaXZ = data.getLastDeltaXZ();
-        double acceleration = deltaXZ - lastDeltaXZ;
 
-        double limit = 0.0;
-        if (player.isSprinting()) {
-            limit = 0.026;
-        } else {
-            limit = 0.021;
-        }
-        limit += (player.getActivePotionEffects().stream().filter(e -> e.getType().getName().equals("SPEED")).mapToInt(e -> e.getAmplifier() + 1).sum()) * 0.005;
+        double acceleration = deltaXZ - lastDeltaXZ;
+        double limit = 0.02; // A conservative value for air acceleration
 
         if (acceleration > limit) {
-            // Scale the buffer increase by how much they exceeded the limit.
-            if (buffer.increase(player, (acceleration / limit)) > 15.0) {
-                flag(data, String.format("Impossible acceleration. A: %.5f, L: %.5f", acceleration, limit));
-                buffer.reset(player, 7.5);
+            if (buffer.increase(player, 1.0) > 5.0) {
+                flag(data, String.format("Exceeded air acceleration limit. A: %.5f, L: %.5f", acceleration, limit));
             }
         } else {
             buffer.decrease(player, 0.25);
