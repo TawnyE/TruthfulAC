@@ -38,7 +38,8 @@ public final class SpeedA extends Check {
             max += 0.3D;
         }
 
-        max += 0.05; // Network buffer
+        // Add a small tolerance for network fluctuations
+        max += 0.03;
 
         final double horizontal = playerData.getDeltaXZ();
         final double excess = horizontal - max;

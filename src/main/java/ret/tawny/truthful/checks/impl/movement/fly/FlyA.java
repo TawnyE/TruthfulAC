@@ -30,7 +30,7 @@ public final class FlyA extends Check {
 
         // --- DEFINITIVE FIX: State-Aware Logic ---
         // This check is a vertical residual test and should only apply to falling motion.
-        if (data.isLastGround() || data.getDeltaY() > 0) {
+        if (data.isLastGround() || data.getDeltaY() > 0 || !data.getVelocities().isEmpty()) {
             return; // Ignore the tick a player jumps or any upward motion.
         }
 
