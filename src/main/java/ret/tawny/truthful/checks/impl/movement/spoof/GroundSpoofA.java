@@ -16,7 +16,7 @@ import ret.tawny.truthful.wrapper.impl.client.position.RelMovePacketWrapper;
 @SuppressWarnings("unused")
 public final class GroundSpoofA extends Check {
 
-    private final CheckBuffer buffer = new CheckBuffer(5.0); // Increased buffer slightly
+    private final CheckBuffer buffer = new CheckBuffer(4.0);
 
     @Override
     public void handleRelMove(final RelMovePacketWrapper relMovePacketWrapper) {
@@ -26,19 +26,45 @@ public final class GroundSpoofA extends Check {
         final PlayerData playerData = Truthful.getInstance().getDataManager().getPlayerData(player);
 
         if (playerData == null) return;
+
+        // Exemptions
         if (player.getAllowFlight() || player.isFlying() || player.isGliding() || player.isInsideVehicle()) return;
         if (playerData.isTeleportTick() || playerData.isInLiquid() || WorldUtils.hasClimbableNearby(player)) return;
+
+        // Vehicle Exit Buffer (Reduced to 10 ticks in previous fix)
+        if (playerData.getTicksTracked() - playerData.getLastVehicleExitTick() < 10) {
+            buffer.decrease(player, 0.5);
+            return;
+        }
+
+        // Boat/Entity Collision Exemption
+        if (playerData.isNearVehicle() || playerData.isNearEntity()) {
+            buffer.decrease(player, 0.5);
+            return;
+        }
 
         final boolean clientGround = relMovePacketWrapper.isGround();
         final boolean serverGround = playerData.isOnGround();
 
-        if (clientGround && !serverGround && playerData.getTicksInAir() > 4) { // Increased ticks in air
-            if (buffer.increase(player, 1.0) > 5.0) {
-                flag(playerData, "Client claims onGround without server-side support");
-                buffer.reset(player, 2.5);
+        // Logic: Client claims ground, Server says air.
+        // "NoPacket" NoFall often tries to sneak a single onGround=true packet while falling.
+        if (clientGround && !serverGround) {
+            // We require a few ticks of air to prevent false flags on slab edges/stairs (math errors)
+            if (playerData.getTicksInAir() > 4) {
+                // Stricter buffer for NoFall
+                if (buffer.increase(player, 1.0) > 4.0) {
+                    flag(playerData, "Ground Spoof (NoFall). Server: Air, Client: Ground");
+
+                    // Force set back to air logic if lagbacks enabled
+                    if (Truthful.getInstance().getConfiguration().isLagbacks()) {
+                        player.teleport(playerData.getLastLocation());
+                    }
+                    buffer.reset(player, 2.0);
+                }
             }
         } else {
-            buffer.decrease(player, 0.5); // Made forgiveness more generous
+            // Decay
+            buffer.decrease(player, 0.25);
         }
     }
 

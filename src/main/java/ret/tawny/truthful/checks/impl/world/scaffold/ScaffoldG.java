@@ -8,62 +8,57 @@ import ret.tawny.truthful.checks.api.Check;
 import ret.tawny.truthful.checks.api.data.CheckData;
 import ret.tawny.truthful.checks.api.data.CheckType;
 import ret.tawny.truthful.data.PlayerData;
-import ret.tawny.truthful.utils.math.Kinematics;
 import ret.tawny.truthful.utils.math.MathHelper;
 import ret.tawny.truthful.wrapper.impl.client.position.RelMovePacketWrapper;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @CheckData(order = 'G', type = CheckType.SCAFFOLD)
 @SuppressWarnings("unused")
 public final class ScaffoldG extends Check {
 
-    private final Map<UUID, PlayerScaffoldData> scaffoldDataMap = new HashMap<>();
-    private static final long GCD_CONSTANT = (long) Math.pow(2, 24);
+    private final Map<UUID, PlayerScaffoldData> scaffoldDataMap = new ConcurrentHashMap<>();
 
     @Override
     public void handleRelMove(final RelMovePacketWrapper relMovePacketWrapper) {
+        if (!relMovePacketWrapper.isRotationUpdate()) return;
+
         final Player player = relMovePacketWrapper.getPlayer();
         final PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
 
         if (data == null || data.isTeleportTick()) return;
 
-        // --- Heuristic 1: Movement Vector Analysis (Bridging) ---
-        if (data.getTicksInAir() == 1 && data.isLastGround()) {
-            double angle = Kinematics.getStrafeAngle(data.getLastLocation(), data.getDeltaX(), data.getDeltaZ());
+        // Only check if looking down (Bridging)
+        // Pitch 90 is straight down. Pitch 0 is forward.
+        if (data.getPitch() < 60.0) return;
 
-            // Increased angle to be much more lenient for diagonal bridging.
-            if (angle > 150.0 && data.getDeltaXZ() > 0.2) {
-                flag(data, "Bridged at an impossible angle. Angle: " + String.format("%.2f", angle));
+        // Only check significant snaps. Tiny movements are often too noisy.
+        if (Math.abs(data.getDeltaYaw()) < 5.0) return;
+
+        PlayerScaffoldData scaffoldData = scaffoldDataMap.computeIfAbsent(player.getUniqueId(), id -> new PlayerScaffoldData());
+
+        float deltaYaw = Math.abs(data.getDeltaYaw());
+        float lastDeltaYaw = Math.abs(data.getLastDeltaYaw());
+
+        long gcdYaw = MathHelper.gcd((long) (deltaYaw * 16777216.0), (long) (lastDeltaYaw * 16777216.0));
+
+        // --- FIX: Sensitivity / Smoothing Compatibility ---
+        // Values like 64, 128, 256, etc. appear when players use mouse smoothing or specific gaming mice.
+        // These values are mathematically "off-grid" but consistent with hardware smoothing.
+        // Valid 'Bot' rotations often return 1 or very close to 0 relative to the multiplier.
+        // We lowered the threshold to 40 to filter out these smoothed inputs.
+        if (gcdYaw < 40) {
+            scaffoldData.violations++;
+            // Require a streak of failures to confirm robotic movement
+            if (scaffoldData.violations > 10) {
+                flag(data, String.format("Rotation GCD failure. YawGCD: %d", gcdYaw));
+                scaffoldData.violations = 0;
             }
-        }
-
-        // --- Heuristic 2: GCD Aim Analysis ---
-        if (data.getDeltaYaw() > 0 && data.getDeltaXZ() > 0.1) {
-            PlayerScaffoldData scaffoldData = scaffoldDataMap.computeIfAbsent(player.getUniqueId(), id -> new PlayerScaffoldData());
-            scaffoldData.addSample(data.getDeltaYaw());
-
-            if (scaffoldData.isFull()) {
-                long totalGcd = 0;
-                for (long sample : scaffoldData.samples) {
-                    totalGcd = MathHelper.gcd(totalGcd, sample);
-                }
-                double finalGcd = (double) totalGcd / GCD_CONSTANT;
-
-                if (finalGcd > 0.05) {
-                    scaffoldData.violations++;
-                    if (scaffoldData.violations > 3) {
-                        flag(data, "Detected non-human aim patterns (GCD). Value: " + String.format("%.4f", finalGcd));
-                    }
-                } else {
-                    scaffoldData.violations = Math.max(0, scaffoldData.violations - 1);
-                }
-                scaffoldData.samples.clear();
-            }
+        } else {
+            // Instant forgiveness for valid input
+            scaffoldData.violations = 0;
         }
     }
 
@@ -73,14 +68,6 @@ public final class ScaffoldG extends Check {
     }
 
     private static class PlayerScaffoldData {
-        private final Deque<Long> samples = new ArrayDeque<>();
         private int violations = 0;
-        void addSample(float deltaYaw) {
-            if (samples.size() >= 40) samples.removeFirst();
-            samples.addLast((long) (deltaYaw * GCD_CONSTANT));
-        }
-        boolean isFull() {
-            return samples.size() == 40;
-        }
     }
 }

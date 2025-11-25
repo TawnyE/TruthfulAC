@@ -6,7 +6,7 @@
 
     <groupId>ret.tawny</groupId>
     <artifactId>truthful</artifactId>
-    <version>2.0-SNAPSHOT</version>
+    <version>v1.3</version>
     <packaging>jar</packaging>
 
     <name>Truthful</name>
@@ -39,6 +39,13 @@
                         </goals>
                         <configuration>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <relocations>
+                                <!-- Relocate bStats to prevent conflicts with other plugins -->
+                                <relocation>
+                                    <pattern>org.bstats</pattern>
+                                    <shadedPattern>ret.tawny.truthful.bstats</shadedPattern>
+                                </relocation>
+                            </relocations>
                         </configuration>
                     </execution>
                 </executions>
@@ -69,7 +76,6 @@
             <id>geysermc-repo</id>
             <url>https://repo.geysermc.org/repository/maven-public/</url>
         </repository>
-        <!-- The user-added repositories -->
         <repository>
             <id>opencollab-repo</id>
             <url>https://repo.opencollab.dev/main/</url>
@@ -78,7 +84,6 @@
             <id>scarsz-nexus</id>
             <url>https://nexus.scarsz.me/content/groups/public/</url>
         </repository>
-        <!-- The repository needed for SNAPSHOT builds like Floodgate -->
         <repository>
             <id>sonatype-snapshots</id>
             <url>https://oss.sonatype.org/content/repositories/snapshots</url>
@@ -103,12 +108,24 @@
             <artifactId>reflections</artifactId>
             <version>0.10.2</version>
         </dependency>
-        <!-- Corrected Floodgate API Dependency -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-buffer</artifactId>
+            <version>4.2.3.Final</version> <!-- Use a version matching your server (4.1.x is standard) -->
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>org.geysermc.floodgate</groupId>
             <artifactId>api</artifactId>
             <version>2.2.2-SNAPSHOT</version>
             <scope>provided</scope>
+        </dependency>
+        <!-- bStats Metrics -->
+        <dependency>
+            <groupId>org.bstats</groupId>
+            <artifactId>bstats-bukkit</artifactId>
+            <version>3.0.2</version>
+            <scope>compile</scope>
         </dependency>
     </dependencies>
 </project>

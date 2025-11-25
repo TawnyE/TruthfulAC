@@ -15,7 +15,13 @@ public enum CheckType {
     AIM("Aim"),
     RAYCAST("Raycast"),
     STRAFE("Strafe"),
-    PACKET_ORDER("Packet Order");
+    ELYTRA("Elytra"),
+    PACKET_ORDER("Packet Order"),
+    AUTOCLICKER("AutoClicker"),
+    REACH("Reach"),
+    NO_SLOW("NoSlow"),
+    FAST_BREAK("FastBreak"),
+    VEHICLE("Vehicle");
 
     private final String name;
 

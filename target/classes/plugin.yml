@@ -1,9 +1,22 @@
-name: Truthful
-version: '2.0'
+name: TruthfulAC
+version: 'v1.3'
 main: ret.tawny.truthful.TruthfulPlugin
 api-version: '1.21'
-authors: [Tawny]
+author: Tawny
 description: Multi-version anti-cheat with modernized movement and combat checks
 load: POSTWORLD
 depend:
   - ProtocolLib
+commands:
+  truthful:
+    description: Main command for Truthful Anti-Cheat
+    usage: /truthfulac <help|logs|exempt|menu>
+    aliases: [TruthfulAC, ac]
+    permission: truthful.admin
+permissions:
+  truthful.admin:
+    description: Admin permission for Truthful
+    default: op
+  truthful.alerts:
+    description: Receive alerts
+    default: op

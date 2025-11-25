@@ -12,8 +12,11 @@ import ret.tawny.truthful.utils.world.BlockUtils;
 import ret.tawny.truthful.wrapper.impl.client.action.PlayerBlockPlacePacketWrapper;
 
 @CheckData(order = 'B', type = CheckType.SCAFFOLD)
-@SuppressWarnings("unused") // Suppress "never used" warning, as this class is instantiated by reflection.
+@SuppressWarnings("unused")
 public final class ScaffoldB extends Check {
+
+    // Tolerance for floating point errors
+    private static final double EPSILON = 1.0E-4;
 
     @Override
     public void handlePacketPlayerReceive(final PacketEvent event) {
@@ -23,12 +26,12 @@ public final class ScaffoldB extends Check {
         final PlayerData playerData = Truthful.getInstance().getDataManager().getPlayerData(player);
         if(playerData == null) return;
 
-        final PlayerBlockPlacePacketWrapper blockPlacePacketWrapper = new PlayerBlockPlacePacketWrapper(event);
+        final PlayerBlockPlacePacketWrapper wrapper = new PlayerBlockPlacePacketWrapper(event);
 
-        if (BlockUtils.isAbnormal(blockPlacePacketWrapper.getBlock().getType())) return;
+        if (BlockUtils.isAbnormal(wrapper.getBlock().getType())) return;
 
-        if (!this.validate(blockPlacePacketWrapper)) {
-            flag(playerData, "Invalid block hit vector. " + blockPlacePacketWrapper.getHitVec());
+        if (!this.validate(wrapper)) {
+            flag(playerData, "Invalid block hit vector. " + wrapper.getHitVec());
         }
     }
 
@@ -37,19 +40,24 @@ public final class ScaffoldB extends Check {
         final double facingY = wrapper.getHitVec().getY();
         final double facingZ = wrapper.getHitVec().getZ();
 
-        if (facingX < 0 || facingX > 1 || facingY < 0 || facingY > 1 || facingZ < 0 || facingZ > 1) {
+        // Check bounds with epsilon
+        if (facingX < -EPSILON || facingX > 1.0 + EPSILON ||
+                facingY < -EPSILON || facingY > 1.0 + EPSILON ||
+                facingZ < -EPSILON || facingZ > 1.0 + EPSILON) {
             return false;
         }
 
         if (wrapper.getBlockFace() == null) return true;
 
+        // Check face alignment
+        // If we click the NORTH face, Z must be 0 (or close to it).
         return switch (wrapper.getBlockFace()) {
-            case NORTH -> facingZ == 0;
-            case WEST -> facingX == 0;
-            case SOUTH -> facingZ == 1;
-            case EAST -> facingX == 1;
-            case UP -> facingY == 1;
-            case DOWN -> facingY == 0;
+            case NORTH -> Math.abs(facingZ) < EPSILON;
+            case SOUTH -> Math.abs(facingZ - 1.0) < EPSILON;
+            case WEST -> Math.abs(facingX) < EPSILON;
+            case EAST -> Math.abs(facingX - 1.0) < EPSILON;
+            case DOWN -> Math.abs(facingY) < EPSILON;
+            case UP -> Math.abs(facingY - 1.0) < EPSILON;
             default -> true;
         };
     }

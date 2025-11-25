@@ -1,13 +1,21 @@
 package ret.tawny.truthful;
 
 import org.bukkit.Bukkit;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Vehicle;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.geysermc.floodgate.api.FloodgateApi;
 import ret.tawny.truthful.checks.registry.CheckRegistry;
+import ret.tawny.truthful.commands.impl.CommandManager;
+import ret.tawny.truthful.compensation.CompensationTracker;
 import ret.tawny.truthful.compensation.Scheduler;
 import ret.tawny.truthful.config.api.Configuration;
 import ret.tawny.truthful.data.DataManager;
+import ret.tawny.truthful.data.PlayerData;
+import ret.tawny.truthful.database.LogManager;
+import ret.tawny.truthful.gui.GuiManager;
 import ret.tawny.truthful.listener.PacketListener;
 import ret.tawny.truthful.listener.PlayerListener;
 import ret.tawny.truthful.version.VersionManager;
@@ -17,94 +25,111 @@ public final class Truthful {
 
     private boolean floodgateSupportEnabled = false;
     private FloodgateApi floodgateApi = null;
+
     private VersionManager versionManager;
     private CheckRegistry checkManager;
     private DataManager dataManager;
     private Scheduler scheduler;
+    private CompensationTracker compensationTracker;
     private PlayerListener playerListener;
     private PacketListener packetListener;
+    private LogManager logManager;
+    private GuiManager guiManager;
     private Plugin plugin;
 
-    private Truthful() {
-        // Private constructor for singleton
-    }
+    private Truthful() {}
 
     public void start(final Plugin plugin) {
         this.plugin = plugin;
 
-        // Hook into Floodgate (the API for Geyser)
         if (Bukkit.getPluginManager().isPluginEnabled("floodgate")) {
             try {
                 this.floodgateApi = FloodgateApi.getInstance();
                 this.floodgateSupportEnabled = true;
-                plugin.getLogger().info("Successfully hooked into Floodgate. Bedrock players will be exempt from checks.");
+                plugin.getLogger().info("Successfully hooked into Floodgate.");
             } catch (Exception e) {
-                plugin.getLogger().warning("Found Floodgate, but failed to hook into its API. Bedrock player exemption may not work.");
+                plugin.getLogger().warning("Found Floodgate, but failed to hook.");
             }
         }
 
-        // Initialize core components that have no dependencies.
         this.versionManager = new VersionManager();
         this.dataManager = new DataManager();
         this.scheduler = new Scheduler();
+        this.logManager = new LogManager(plugin);
+        this.guiManager = new GuiManager();
 
-        // Load the version adapter.
         this.versionManager.load();
+        this.compensationTracker = new CompensationTracker();
 
-        // Now, initialize components that DEPEND on the core ones.
+        plugin.getServer().getPluginCommand("truthful").setExecutor(new CommandManager());
+
         this.checkManager = new CheckRegistry();
         this.playerListener = new PlayerListener();
         this.packetListener = new PacketListener(this.checkManager);
 
-        // Finalize the setup by registering events for the loaded checks.
         this.checkManager.init();
+
+        // --- SYNC TASK LOOP ---
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                // 1. Tick Compensation Tracker
+                if (compensationTracker != null) {
+                    compensationTracker.tick();
+                }
+
+                // 2. Update Thread-Safe Entity Data for Checks
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    PlayerData data = dataManager.getPlayerData(player);
+                    if (data == null) continue;
+
+                    boolean vehicleNearby = false;
+                    boolean entityNearby = false;
+
+                    // Scan for entities in a 1.5 block radius (generous to prevent falses)
+                    // Added Entity Type checks to avoid casting unnecessary entities
+                    for (Entity entity : player.getNearbyEntities(1.5, 1.5, 1.5)) {
+                        if (entity instanceof Vehicle) {
+                            vehicleNearby = true;
+                        } else if (entity instanceof Player || entity.getType().isAlive()) {
+                            // Any other living entity or player
+                            entityNearby = true;
+                        }
+                    }
+
+                    data.setNearVehicle(vehicleNearby);
+                    data.setNearEntity(entityNearby);
+                }
+            }
+        }.runTaskTimer(plugin, 1L, 1L);
     }
 
     public void shutdown() {
-        // Future shutdown logic can go here
+        if (logManager != null) {
+            logManager.shutdown();
+        }
     }
 
-    /**
-     * Safely checks if a player is connected via Floodgate (Bedrock).
-     * @param player The player to check.
-     * @return true if the player is a Bedrock player, false otherwise.
-     */
     public boolean isBedrockPlayer(Player player) {
         if (!floodgateSupportEnabled || floodgateApi == null || player == null) {
             return false;
         }
-        return floodgateApi.isFloodgatePlayer(player.getUniqueId());
+        try {
+            return floodgateApi.isFloodgatePlayer(player.getUniqueId());
+        } catch (Exception e) {
+            return false;
+        }
     }
 
-    public static Truthful getInstance() {
-        return INSTANCE;
-    }
-
-    public VersionManager getVersionManager() {
-        return this.versionManager;
-    }
-
-    public DataManager getDataManager() {
-        return this.dataManager;
-    }
-
-    public CheckRegistry getCheckManager() {
-        return this.checkManager;
-    }
-
-    public Configuration getConfiguration() {
-        return ((TruthfulPlugin) plugin).getConfiguration();
-    }
-
-    public Plugin getPlugin() {
-        return plugin;
-    }
-
-    public PlayerListener getPlayerListener() {
-        return playerListener;
-    }
-
-    public Scheduler getScheduler() {
-        return scheduler;
-    }
+    public static Truthful getInstance() { return INSTANCE; }
+    public VersionManager getVersionManager() { return this.versionManager; }
+    public DataManager getDataManager() { return this.dataManager; }
+    public CheckRegistry getCheckManager() { return this.checkManager; }
+    public Configuration getConfiguration() { return ((TruthfulPlugin) plugin).getConfiguration(); }
+    public Plugin getPlugin() { return plugin; }
+    public PlayerListener getPlayerListener() { return playerListener; }
+    public Scheduler getScheduler() { return scheduler; }
+    public CompensationTracker getCompensationTracker() { return compensationTracker; }
+    public LogManager getLogManager() { return logManager; }
+    public GuiManager getGuiManager() { return guiManager; }
 }

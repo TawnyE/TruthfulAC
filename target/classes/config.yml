@@ -1,63 +1,138 @@
-# ----------------------------------------------------------------------------------- #
-# Truthful Anti-Cheat Configuration
+# =================================================================================== #
+#                                 TRUTHFUL ANTI-CHEAT                                 #
+# =================================================================================== #
 #
-# This file allows you to enable or disable individual checks.
-# To disable a check, simply change 'enabled: true' to 'enabled: false'.
-# ----------------------------------------------------------------------------------- #
+#  Configuration Guide:
+#  - enabled: true/false -> Toggles the specific check on or off.
+#
+#  Note: Bedrock players (via Floodgate) are automatically exempt from all checks
+#  if the Floodgate plugin is detected.
+# =================================================================================== #
 
-# General options for the anti-cheat.
 options:
-  # If true, the plugin will attempt to lag players back when they fail certain movement checks.
+  # If true, the plugin will attempt to teleport players back to their last valid
+  # location when they fail movement checks (Fly, Speed, Jesus).
   lagback: true
 
-# Configuration for all checks.
+messages:
+  # Available placeholders: %player%, %check%, %vl%, %ping%, %debug%
+  alert: "&8[&cTruthful&8] &c%player% &ffailed &c%check% &8(&fVL:%vl%&8) &7%debug%"
+
+  # Available placeholders: %player%, %brand%
+  brand: "&8[&cTruthful&8] &7Client Brand: &c%player% &7using &f%brand%"
+
 checks:
-  # Movement related detections
+  # ------------------------------------------------------------------------------- #
+  # MOVEMENT CHECKS
+  # ------------------------------------------------------------------------------- #
   FLY:
-    A:
+    A: # Kinetic Energy & Gravity prediction. Detects Flight and weird jumps.
       enabled: true
+
+  ELYTRA:
+    A: # Infinite Flight / Force Height detection.
+      enabled: true
+    B: # Energy Conservation. Detects gaining speed while rising without fireworks.
+      enabled: true
+    C: # Glide Ratio. Detects "Cruise Control" / Maintaining altitude while flying fast.
+      enabled: true
+    D: # Acceleration. Detects speed gain without diving or fireworks.
+      enabled: true
+    E: # Kinetic Control. Detects impossible turns and strafing while flying.
+      enabled: true
+    F: # Pitch/Speed Limit. Prevents going fast while looking up/flat.
+      enabled: true
+    G: # Vector Alignment. Prevents flying sideways/backwards relative to look direction.
+      enabled: true
+    I: # Hover/Stall Check.
+      enabled: true
+
   SPEED:
-    A:
+    A: # Speed Limit. Enforces max vanilla walking/sprinting speeds + friction.
       enabled: true
+    B: # Momentum Analysis. Detects if a player accelerates faster than physics allow.
+      enabled: true
+    C: # Air Acceleration. Detects abnormal speed buildup while jumping.
+      enabled: true
+
+  STRAFE:
+    A: # Air Control. Detects changing direction mid-air instantly (impossible physics).
+      enabled: true
+
   JESUS:
-    A:
+    A: # Water/Liquid check. Detects walking on water or moving too fast inside it.
       enabled: true
-  SPOOF:
-    A: # Ground Spoof
-      enabled: true
+
   TIMER:
-    A:
+    A: # Game Speed / Balance. Detects if the client is sending packets faster than the server.
       enabled: true
 
-  # Combat related detections
+  SPOOF:
+    A: # Ground Spoof. Detects clients claiming to be on the ground while in mid-air.
+      enabled: true
+
+  # ------------------------------------------------------------------------------- #
+  # COMBAT CHECKS
+  # ------------------------------------------------------------------------------- #
   AIM:
-    A: # Rotation Snap
+    A: # Sensitivity/Grid (GCD). Detects robotic/generated aim (Aimbot/KillAura).
       enabled: true
-    B: # Rotation Acceleration
+    B: # Rotation Acceleration. Detects perfectly smooth or instantly snapping aim.
       enabled: true
+
   HITBOX:
-    A: # Reach
+    A: # Reach. Detects hitting entities from too far away.
       enabled: true
+    B: # Field of View (FOV). Detects hitting entities outside the player's vision/angle.
+      enabled: true
+
   RAYCAST:
-    A: # Block Reach/Raycast
+    A: # Wall Hit. Detects hitting entities through solid blocks (walls).
       enabled: true
 
-  # World interaction detections
+  # ------------------------------------------------------------------------------- #
+  # WORLD / BUILDING CHECKS
+  # ------------------------------------------------------------------------------- #
   SCAFFOLD:
-    A: # Tower/Face Check
+    A: # Face Check. Placing blocks on faces that shouldn't be visible.
       enabled: true
-    B: # Bad Hit Vector
+    B: # Vector Check. Invalid placement coordinates.
       enabled: true
-    C: # Sprinting Scaffold
+    C: # Sprint Check. Placing blocks backwards while sprinting forward.
+      enabled: true
+    D: # Impossible Place. Towering down or sprinting while bridging without looking down.
+      enabled: true
+    E: # Fast Place. Placing blocks immediately after switching items (AutoBlock).
+      enabled: true
+    F: # Rotation check. Pitch stability analysis while bridging.
+      enabled: true
+    G: # GCD Aim Analysis. Detects robotic rotations specifically during bridging.
+      enabled: true
+    H: # Cadence. Detects consistent placement timing (FastPlace/Macro).
+      enabled: true
+    I: # Raytrace Alignment. Ensures the player is physically looking at the block face they clicked.
+      enabled: true
+    J: # Rotation Lock. Detects identical rotations between placements.
       enabled: true
 
-  # Packet and protocol violation detections
+  # ------------------------------------------------------------------------------- #
+  # PACKET / PROTOCOL CHECKS
+  # ------------------------------------------------------------------------------- #
   BAD_PACKET:
-    A: # Invalid Pitch
+    A: # Invalid Pitch. Head pitch > 90 or < -90 (Derp).
       enabled: true
-    B: # Invalid Slot Switch
+    B: # Slot Switch. Switching to the same slot twice.
       enabled: true
-    C: # Invalid Payload
+    C: # Payload. Detects crash exploits via CustomPayload packets.
       enabled: true
-    D: # Invalid Entity Action
+    D: # Impossible Action. Sprinting while Blind or Hungry (OmniSprint).
+      enabled: true
+
+  # ------------------------------------------------------------------------------- #
+  # VEHICLE CHECKS
+  # ------------------------------------------------------------------------------- #
+  VEHICLE:
+    A: # Boat Fly (Ascension/Hover)
+      enabled: true
+    B: # Boat Speed (Horizontal limit)
       enabled: true

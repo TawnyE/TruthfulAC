@@ -9,51 +9,71 @@ import ret.tawny.truthful.checks.api.data.CheckData;
 import ret.tawny.truthful.checks.api.data.CheckType;
 import ret.tawny.truthful.data.PlayerData;
 import ret.tawny.truthful.wrapper.impl.client.position.RelMovePacketWrapper;
-import java.util.HashMap;
+
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @CheckData(order = 'A', type = CheckType.TIMER)
 @SuppressWarnings("unused")
 public final class TimerA extends Check {
 
-    private final Map<UUID, Long> lastPacketTimeMap = new HashMap<>();
+    private final Map<UUID, Long> lastPacketTime = new ConcurrentHashMap<>();
+    private final Map<UUID, Double> balanceMap = new ConcurrentHashMap<>();
 
     @Override
     public void handleRelMove(final RelMovePacketWrapper relMovePacketWrapper) {
         final Player player = relMovePacketWrapper.getPlayer();
         final PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
 
-        // Add a grace period for when the player first joins the server.
-        if (data == null || data.isTeleportTick() || data.getTicksTracked() < 100) {
+        if (data == null)
+            return;
+
+        if (data.getTicksTracked() < 100 || data.isTeleportTick()) {
+            lastPacketTime.put(player.getUniqueId(), System.nanoTime());
             return;
         }
 
-        long now = System.currentTimeMillis();
-        long last = lastPacketTimeMap.computeIfAbsent(player.getUniqueId(), id -> now - 50L);
-        long delay = now - last;
+        long now = System.nanoTime();
+        long last = lastPacketTime.getOrDefault(player.getUniqueId(), now);
 
-        // CRITICAL FIX: Prevent division by zero if packets arrive in the same millisecond.
-        if (delay <= 0) {
-            delay = 1; // Treat it as 1ms to avoid infinity
+        long diffNano = now - last;
+        double diffMs = diffNano / 1_000_000.0;
+
+        // FIX 1: Detect Lag Spikes (Server or Client freeze)
+        // If gap is > 750ms, assume lag spike and do not penalize balance
+        if (diffMs > 750.0) {
+            balanceMap.put(player.getUniqueId(), -50.0); // Reset balance
+            lastPacketTime.put(player.getUniqueId(), now);
+            return;
         }
 
-        data.timerSpeed.add(50.0 / delay);
+        double balance = balanceMap.getOrDefault(player.getUniqueId(), -50.0);
 
-        if (data.timerSpeed.isFull()) {
-            double averageSpeed = data.timerSpeed.getAverage();
+        balance += 50.0; // Expected 50ms per tick
+        balance -= diffMs; // Subtract actual time
 
-            // Be more lenient, only flag for speeds consistently above 130%
-            if (averageSpeed > 1.3) {
-                flag(data, String.format("Average speed is too high. Speed: %.2fx", averageSpeed));
+        // Clamp negative balance (catching up)
+        if (balance < -500.0) {
+            balance = -500.0;
+        }
+
+        // FIX 2: Increased threshold from 100.0 to 200.0 (Relaxed)
+        if (balance > 200.0) {
+            if (data.getTicksTracked() > 150) {
+                flag(data, String.format("Game speed too fast. Balance: +%.2fms", balance));
+                // Hard reset to avoid spamming
+                balance = 0.0;
             }
         }
 
-        lastPacketTimeMap.put(player.getUniqueId(), now);
+        balanceMap.put(player.getUniqueId(), balance);
+        lastPacketTime.put(player.getUniqueId(), now);
     }
 
     @EventHandler
     public void onQuit(final PlayerQuitEvent event) {
-        lastPacketTimeMap.remove(event.getPlayer().getUniqueId());
+        lastPacketTime.remove(event.getPlayer().getUniqueId());
+        balanceMap.remove(event.getPlayer().getUniqueId());
     }
 }

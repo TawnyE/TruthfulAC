@@ -9,6 +9,7 @@ import ret.tawny.truthful.checks.api.CheckBuffer;
 import ret.tawny.truthful.checks.api.data.CheckData;
 import ret.tawny.truthful.checks.api.data.CheckType;
 import ret.tawny.truthful.data.PlayerData;
+import ret.tawny.truthful.utils.player.PredictionUtils;
 import ret.tawny.truthful.wrapper.impl.client.position.RelMovePacketWrapper;
 
 @CheckData(order = 'B', type = CheckType.SPEED)
@@ -23,33 +24,45 @@ public final class SpeedB extends Check {
 
         final Player player = relMovePacketWrapper.getPlayer();
         final PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
-        if (data == null || !data.isOnGround() || data.isTeleportTick()) return;
 
-        // EXEMPTION: Forgive acceleration for the first 3 ticks after landing to allow for sprint-jumping.
-        if (data.getTicksOnGround() < 3) {
-            buffer.decrease(player, 1.0);
+        if (data == null) return;
+        if (player.getAllowFlight() || player.isFlying() || player.isGliding() || player.isInsideVehicle()) return;
+        if (data.isTeleportTick() || !data.getVelocities().isEmpty()) return;
+        if (data.isInLiquid() || data.wasInLiquid()) return;
+
+        // FIX: Reduced Vehicle Exit Immunity (40 -> 10)
+        if (data.getTicksTracked() - data.getLastVehicleExitTick() < 10) {
+            buffer.decrease(player, 0.5);
             return;
         }
 
-        if (data.isCollidedHorizontally()) return;
-
         double deltaXZ = data.getDeltaXZ();
         double lastDeltaXZ = data.getLastDeltaXZ();
-        double acceleration = deltaXZ - lastDeltaXZ;
 
-        double limit = 0.0;
-        if (player.isSprinting()) {
-            limit = 0.026;
-        } else {
-            limit = 0.021;
+        float friction = 0.91F;
+        if (data.isLastGround()) {
+            friction *= PredictionUtils.getBlockFriction(player.getWorld(), data.getLastLocation());
         }
-        limit += (player.getActivePotionEffects().stream().filter(e -> e.getType().getName().equals("SPEED")).mapToInt(e -> e.getAmplifier() + 1).sum()) * 0.005;
 
-        if (acceleration > limit) {
-            // Scale the buffer increase by how much they exceeded the limit.
-            if (buffer.increase(player, (acceleration / limit)) > 15.0) {
-                flag(data, String.format("Impossible acceleration. A: %.5f, L: %.5f", acceleration, limit));
-                buffer.reset(player, 7.5);
+        double acceleration;
+        if (data.isLastGround()) {
+            acceleration = PredictionUtils.getBaseSpeed(player) * (0.16277136 / (friction * friction * friction));
+            if (data.getDeltaY() > 0.0) acceleration += 0.2;
+        } else {
+            acceleration = 0.026;
+            if (player.hasPotionEffect(org.bukkit.potion.PotionEffectType.SPEED)) acceleration += 0.005;
+        }
+
+        double predicted = (lastDeltaXZ * friction) + acceleration;
+        double bufferLimit = predicted + 0.05;
+
+        if (deltaXZ > bufferLimit) {
+            if (deltaXZ > 0.2) {
+                double diff = deltaXZ - predicted;
+                if (buffer.increase(player, 1.0) > 15.0) {
+                    flag(data, String.format("Friction. Diff: %.4f, Speed: %.3f", diff, deltaXZ));
+                    buffer.reset(player, 10.0);
+                }
             }
         } else {
             buffer.decrease(player, 0.25);

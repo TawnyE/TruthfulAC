@@ -1,47 +1,54 @@
 package ret.tawny.truthful.sync;
 
 import org.bukkit.Location;
-import org.bukkit.World;
-import ret.tawny.truthful.utils.tick.ITickable;
-import ret.tawny.truthful.utils.world.WorldUtils;
-import java.util.ArrayList;
+import org.bukkit.util.Vector;
+import java.util.concurrent.ConcurrentLinkedDeque;
 
-public final class TeleportQueue extends ArrayList<TeleportQueue.Teleport> {
-    public static final class Teleport implements ITickable {
-        private final Location location;
-        private int initialDelay;
+public final class TeleportQueue {
 
-        public Teleport(final Location location, final int initialDelay) {
-            this.location = location;
-            this.initialDelay = initialDelay;
-        }
+    private final ConcurrentLinkedDeque<Teleport> queue = new ConcurrentLinkedDeque<>();
 
-        public Location getLocation() {
-            return this.location;
-        }
-
-        @Override
-        public void tick() {
-            --this.initialDelay;
-        }
-
-        public boolean hasReceived() {
-            return this.initialDelay <= 0;
-        }
+    public void add(Location location) {
+        queue.add(new Teleport(location));
     }
 
-    public static class TeleportBuffer {
-        private static final int TIMEOUT = 2;
-        private final int releaseTick;
-        private final World world;
+    /**
+     * Checks if the given coordinates match a pending teleport in the queue.
+     * If a match is found, it removes the teleport and returns true.
+     */
+    public boolean match(double x, double y, double z) {
+        // We use an iterator to safely remove the item if found
+        var iterator = queue.iterator();
 
-        public TeleportBuffer(final World world) {
-            this.world = world;
-            this.releaseTick = WorldUtils.getWorldTicks(this.world);
+        while (iterator.hasNext()) {
+            Teleport tp = iterator.next();
+
+            // Check distance. Clients sometimes snap to grid, so we allow a small error (0.05 blocks)
+            double distSq = Math.pow(tp.x - x, 2) + Math.pow(tp.y - y, 2) + Math.pow(tp.z - z, 2);
+
+            if (distSq < 0.0025) { // 0.05 * 0.05
+                iterator.remove();
+                return true;
+            }
         }
+        return false;
+    }
 
-        public boolean tick() {
-            return WorldUtils.getWorldTicks(this.world) - this.releaseTick > TIMEOUT;
+    // Cleanup old teleports that were never confirmed (lagged out/cancelled)
+    public void cleanup() {
+        long now = System.currentTimeMillis();
+        queue.removeIf(tp -> now - tp.timestamp > 5000); // Remove after 5 seconds
+    }
+
+    private static class Teleport {
+        final double x, y, z;
+        final long timestamp;
+
+        Teleport(Location loc) {
+            this.x = loc.getX();
+            this.y = loc.getY();
+            this.z = loc.getZ();
+            this.timestamp = System.currentTimeMillis();
         }
     }
 }
