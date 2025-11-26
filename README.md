@@ -85,4 +85,4 @@ We prioritize clean code, low performance overhead, and "set-and-forget" configu
 ## 💬 **Support**
 
 Need help or want to report a bypass? Join our community:
-👉 [**Join the Discord Server**](https://discord.gg/xRchyJFkBG)
+👉 [**Join the Discord Server**](https://discord.gg/AnQvddTZDg)
