@@ -1,3 +1,5 @@
+code base may not be updated any longer to keep the security of the checks.
+
 <div align="center">
 
 # 🛡️ Truthful Anti-Cheat
