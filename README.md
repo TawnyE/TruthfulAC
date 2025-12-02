@@ -1,4 +1,4 @@
-code base may not be updated any longer to keep the security of the checks.
+ all this checks will not be available on GitHub there will be a couple examples where you can make your own but that's it.
 
 <div align="center">
 
