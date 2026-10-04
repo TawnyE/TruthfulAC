@@ -1,66 +1,21 @@
-# TruthfulAC
+# TruthfulAC 
+## Tries to be decent.
 
-TruthfulAC is a Minecraft anti-cheat built around simulation-based movement detection and a full combat suite. It is not trying to be the best anti-cheat ever made. It is trying to be a solid, honest one that actually works and that the community can build on together.
+## Introduction
+> TruthfulAC. This was originally made back in 2019 when I got bored and decided to try something difficult. So, anti-cheats it was. I tried my best. It didn't work out too well, but I got pretty good at it. Knowing a good handful of clients bypassed it. But it was just something that I was wanting to do and I had passion for during that time.
 
-This used to be a paid plugin. It is not anymore. The license key is gone, the obfuscation is gone, and the full source is here for anyone who wants to use it, learn from it, or help make it better.
+> 2021 is when I abandon it fully. Just got bored. Decided to work on something else. Maybe something for a different person. Can't really remember. But I do remember one thing. 2024 is when I started working on my other anti-cheat, CCAC, or CodeControl Anti-Cheat. Late 2025, when I remembered I had this repository. So, I decided to come back with newfound knowledge to try to just revive it. Nothing too special. Then I decided to make it randomly premium, escaping the whole idea of keeping it free, and I started losing enjoyment Quickly.
 
----
+## Where it stands now?
+> The current version is 0.9. Pretty much cleaning up old, dead-related stuff of the code. I do plan to push it very soon. But do I recommend using it? No, absolutely not. Why, you may ask? That's because it's not in a good area. I have a very slow work schedule. Not enough time to continue pumping up updates daily.
 
-# Folia Support
-**Version** - This plugin now supports 26.1 latest version.
-**Compatibility (New)** - It is now supported to Folia Versions **BETA**
+> The engine currently is not in a good area. I mean, it's good, it catches air jump, flight, most speed hacks, but it does false flag a fuckton for no reason. It's because A, I'm throwing shit at the wall and hope it sticks, and trying to relearn certain things for this project without having to copy anything from CCAC.
 
-## What it checks
 
-**Movement** — The core of the plugin. A full server-side physics engine that validates movement every tick against what vanilla actually allows. Covers fly, bhop, speed, elytra abuse, liquid movement, vehicle exploits, NoFall, velocity, and timer manipulation. This is where the most work has gone and where most future work will go.
+## Skid or AI?
+> The first one? No, I don't copy and paste. To most people, if they just see something similar, they're just going to say it. But now on the AI part, yes. Some areas of code related to math, cool. It's able to search that up on the fly. Then I check it over just to see if it's actually correct by researching of my own. because I likely just told it to do something while I went out to do something IRL. At the end of the day, AI is supposed to be tools. Don't just say, make me something and not look at it and actually learn it. Have it explained to you in a learning way for you to understand, to make you better. Always check its work. Does it seem correct? Does it actually work within a running test? If so, well then good. Then rememberize it.
 
-**Combat** — A complete combat detection suite. Eleven aim checks covering GCD analysis, jerk detection, entropy, Bayesian classification, target lock, and more. Seven KillAura checks. Five AutoClicker checks. Reach, hitbox, raycast, crystal aura, and anchor aura. Not basic.
+> So if you're disappointed that I actually use AI, you don't have to use any of my plugins. You don't have to acknowledge that I exist anymore. So be it.
 
-**World and Packets** — Scaffold, fastbreak, phase, bad packet detection, packet order violations, sprint abuse, and crash exploit protection.
 
-**Bedrock** — Dedicated checks for Geyser-translated Bedrock players with separate thresholds. Bedrock players never run Java physics checks.
-
----
-
-## What it doesn't do
-
-It will not catch everything. No anti-cheat does. The goal is to keep servers reasonably clean and give the community something maintainable and transparent, not a black box you just hope works.
-
----
-
-## Contributing
-
-Contributions are welcome but there are standards.
-
-Movement checks are the priority. Combat and other checks are accepted too but they need to actually be good, not a half-baked port of something else.
-
-**What is not wanted:**
-- Checks that produce more false positives than actual catches
-- Low effort ports of existing public implementations
-- PRs with no explanation of what changed or why
-- Anything where it is clear the submitter does not understand what they are submitting
-
-**What is wanted:**
-- Movement check improvements and new simulation-based detections
-- Bug fixes with a clear explanation of what was wrong and why the fix works
-- Performance improvements
-- Anything that makes the codebase cleaner or easier to follow
-
-Hit 30 or more meaningful contributions and you get a named credit in the in-game plugin GUI. That is the only credit system. Earn it in the code.
-
-Open a PR, explain what you did and why, and keep it clean.
-
----
-
-## License
-
-Licensed under the **Truthful and Faithful License v1.1**, see the [LICENSE](LICENSE.md) file for full terms.
-
-Free to use, study, modify, and contribute. You cannot sell the plugin or redistribute it under a different license. Custom configuration files and presets are exempt and can be sold freely as long as the plugin jar is not bundled with them.
-
----
-
-## Links
-
-- [Discord](https://discord.gg/DA88PBbseD)
-- [Modrinth](https://modrinth.com/project/truthfulac)
+# Discord: https://discord.gg/DA88PBbseD
