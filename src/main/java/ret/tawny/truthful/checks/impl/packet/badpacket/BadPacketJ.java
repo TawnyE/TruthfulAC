@@ -1,10 +1,7 @@
 package ret.tawny.truthful.checks.impl.packet.badpacket;
 
-import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientEntityAction;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -19,76 +16,39 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-
+/**
+ * BadPacketJ - swaps hotbar slots right as blocks go down. Auto-tool cheats
+ * swap to the right tool per block faster than scrolling allows.
+ */
 @CheckData(order = 'J', type = CheckType.BAD_PACKET)
 public final class BadPacketJ extends Check {
 
-    private final CheckBuffer buffer = new CheckBuffer(8.0);
-    private final Map<UUID, StateData> stateMap = new ConcurrentHashMap<>();
+    private static final long COMBO_WINDOW_MS = 55L;
+
+    private final CheckBuffer buffer = new CheckBuffer(10.0);
+    private final Map<UUID, Long> lastPlace = new ConcurrentHashMap<>();
 
     @Override
     public void handlePacketPlayerReceive(final PacketReceiveEvent event) {
-        if (event.getPacketType() != PacketType.Play.Client.ENTITY_ACTION)
-            return;
+        Object type = event.getPacketType();
+        if (!(event.getPlayer() instanceof Player player)) return;
 
-        final Player player = (Player) event.getPlayer();
-        final PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
-        if (data == null)
-            return;
-
-        // VERSION GATE: Only check 1.9+ clients
-        // 1.8 has client-side desync where this happens naturally
-        ClientVersion clientVersion = PacketEvents.getAPI().getPlayerManager().getClientVersion(player);
-        if (clientVersion.isOlderThan(ClientVersion.V_1_9)) {
+        if (type == PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT) {
+            lastPlace.put(player.getUniqueId(), System.currentTimeMillis());
             return;
         }
 
-        WrapperPlayClientEntityAction wrapper = new WrapperPlayClientEntityAction(event);
-        WrapperPlayClientEntityAction.Action action = wrapper.getAction();
+        if (type != PacketType.Play.Client.HELD_ITEM_CHANGE) return;
+        PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
+        if (data == null || data.isServerFrozen()) return;
 
-        StateData state = stateMap.computeIfAbsent(player.getUniqueId(), k -> new StateData());
-
-        // Track state changes
-        switch (action) {
-            case START_SNEAKING:
-                state.sneaking = true;
-                break;
-            case STOP_SNEAKING:
-                state.sneaking = false;
-                break;
-            case START_SPRINTING:
-                state.sprinting = true;
-                break;
-            case STOP_SPRINTING:
-                state.sprinting = false;
-                break;
-            default:
-                break;
-        }
-
-        // Logic: Impossible State Persistence
-        // Packets can arrive out of order by ~50ms.
-        // We only flag if they maintain Sneak + Sprint for > 100ms.
-
-        long now = System.currentTimeMillis();
-
-        if (state.sneaking && state.sprinting) {
-            if (state.impossibleStartTime == 0) {
-                state.impossibleStartTime = now;
-            }
-
-            long duration = now - state.impossibleStartTime;
-
-            // Grace period: 100ms of overlap is allowed for network jitter
-            if (duration > 100) {
-                if (buffer.increase(player, 1.0) > 5.0) {
-                    flag(data, "Impossible State: Sneak+Sprint > " + duration + "ms");
-                    buffer.reset(player, 2.0);
-                }
+        long sincePlace = System.currentTimeMillis() - lastPlace.getOrDefault(player.getUniqueId(), 0L);
+        if (sincePlace < COMBO_WINDOW_MS) {
+            if (buffer.increase(player, 1.0) > 5.0) {
+                flag(data, "Slot swap while placing");
+                buffer.reset(player, 2.5);
             }
         } else {
-            // State is valid
-            state.impossibleStartTime = 0;
             buffer.decrease(player, 0.1);
         }
     }
@@ -96,12 +56,6 @@ public final class BadPacketJ extends Check {
     @EventHandler
     public void onQuit(final PlayerQuitEvent event) {
         buffer.remove(event.getPlayer());
-        stateMap.remove(event.getPlayer().getUniqueId());
-    }
-
-    private static class StateData {
-        boolean sneaking = false;
-        boolean sprinting = false;
-        long impossibleStartTime = 0;
+        lastPlace.remove(event.getPlayer().getUniqueId());
     }
 }

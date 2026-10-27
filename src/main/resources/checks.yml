@@ -1,0 +1,942 @@
+# ============================================================================== #
+#                                                                                #
+#                T R U T H F U L   A N T I - C H E A T   C H E C K S              #
+#                                                                                #
+#   Everything detection-related lives here: per-check toggles, lagback VLs,    #
+#   punishment thresholds and commands, banwave routing, and the special        #
+#   per-type tuning keys (e.g. AUTOCLICKER.max_cps).                            #
+#                                                                                #
+#   Per-check keys:                                                              #
+#     enabled   - master switch for the check.                                   #
+#     lagback   - position correction ("inherit" | true | false).                #
+#     cancel    - direct packet rejection switch (default true). ONLY applies    #
+#                 to checks that reject packets outright (Crasher, BadPacket     #
+#                 slot/spectate, BedrockReach). false = observe-only: the check  #
+#                 still flags and alerts but lets the packet through. Punishment  #
+#                 and lagback switches never covered packet rejection - this is  #
+#                 the explicit switch for it.                                    #
+#                                                                                #
+#   Plugin-wide settings (alerts, messages, discord, banwave schedule)         #
+#   live in config.yml.                                                          #
+# ============================================================================== #
+
+checks:
+
+  # ---------------------------------------------------------------------------- #
+  # --- BEDROCK & GEYSER PLATFORM CHECKS ---------------------------------------- #
+  # Custom checks for Geyser/Floodgate Bedrock edition players who have different #
+  # touch mechanics, higher natural reach, and unique physics translation.      #
+  # ---------------------------------------------------------------------------- #
+  BEDROCK:
+    # BSpeed(A) - Bedrock players move weird through Geyser, so they get thier own speed check.
+    A:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 15
+      punishment:
+        enabled: true
+        vl: 50
+        command: "kick %player% [Truthful] Speed"
+        banwave: false
+    # BFly(A) - Same deal but for flying. Seperate thresholds, don't mix them with Java.
+    B:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 15
+      punishment:
+        enabled: true
+        vl: 50
+        command: "kick %player% [Truthful] Fly"
+        banwave: false
+    # BReach(A) - Touch controls get extra reach. Don't @ me, that's just how Bedrock is.
+    C:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 15
+      punishment:
+        enabled: true
+        vl: 50
+        command: "kick %player% [Truthful] Reach"
+        banwave: false
+
+  # ---------------------------------------------------------------------------- #
+  # --- SIMULATION - UNIFIED MOTION PHYSICS -------------------------------------- #
+  # One engine, one verdict. Simulates vanilla movement for every legal input    #
+  # each tick and measures the smallest possible deviation from what the client  #
+  # reported. Replaces the old SimulationA-E / VectorA-C suites.                 #
+  # ---------------------------------------------------------------------------- #
+  SIMULATION:
+    # Lagback: "inherit" pulls the global lagback profile (movement checks on,
+# others off); true/false force this check. Example override below Simulation.
+    # Engine architecture credited to Grim Anti-Cheat (clean-room implementation).
+    A:
+      enabled: true
+      lagback-vl: 35
+      punishment:
+        enabled: true
+        vl: 350
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  # ---------------------------------------------------------------------------- #
+  # --- VELOCITY & KNOCKBACK CHECKS ---------------------------------------------- #
+  # Verifies player response to server knockback, explosions, and damage forces   #
+  # using transactional network handshake pairs.                                #
+  # ---------------------------------------------------------------------------- #
+  VELOCITY:
+    # Velocity(A) - Did the knockback actually move them? Catches 0% KB,
+    # partial KB, and reverse KB. Bread and butter, leave it on.
+    A:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 10
+      punishment:
+        enabled: true
+        vl: 150
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Velocity(B) - Vertical KB check. Eats jump-resets and anti-lift for breakfast.
+    B:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 10
+      punishment:
+        enabled: true
+        vl: 150
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Velocity(C) - Takes the KB then slams the brakes on tick 2. Classic move.
+    C:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 10
+      punishment:
+        enabled: true
+        vl: 150
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Velocity(D) - Holds velocity packets hostage to delay the KB. Shitty trick, easy catch.
+    D:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 10
+      punishment:
+        enabled: true
+        vl: 150
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  # ---------------------------------------------------------------------------- #
+  # --- GROUND SPOOF & NOFALL CHECKS --------------------------------------------- #
+  # Validates player ground state claims against physical block collision maps.   #
+  # ---------------------------------------------------------------------------- #
+  SPOOF:
+    # GroundSpoof(B) - Claimed-ground Y must sit on the collision grid
+    # (multiples of 1/16). Logical fallback bug fixed; no longer dead.
+    B:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 100
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # GroundSpoof(C) - Claims ground while falling out of the sky. Yeah right.
+    C:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: true
+        vl: 100
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # GroundSpoof(D) - Claims ground below the damn void. Instant tell.
+    D:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: true
+        vl: 100
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # GroundSpoof(E) - Fall distance reset games. Oldest NoFall trick in the book.
+    E:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: true
+        vl: 150
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # GroundSpoof(F) - Actually looks at the blocks under them. Boring but reliable.
+    F:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: true
+        vl: 150
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # GroundSpoof(G) - Sends ground=true without even moving. Lazy NoFall modules do this.
+    G:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: true
+        vl: 150
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  # ---------------------------------------------------------------------------- #
+  # --- GAME SPEED & TIMER CHECKS ------------------------------------------------ #
+  # Analyzes nanosecond network clock balance to detect game speed acceleration.  #
+  # ---------------------------------------------------------------------------- #
+  TIMER:
+    # Timer(A) - Counts packets against the clock. Timer users stick out fast.
+    A:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: true
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  # ---------------------------------------------------------------------------- #
+  # --- KILLAURA & COMBAT AUTOMATION CHECKS -------------------------------------- #
+  # Analyzes combat patterns, target switching, wall-hitting, and attack order. #
+  # ---------------------------------------------------------------------------- #
+  KILLAURA:
+    # KillAura(B) - Keeps sprinting straight through hits. Real players slow down, cheaters dont.
+    B:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 15
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # KillAura(C) - Snaps to a target then stops dead. Looks robotic because it is.
+    C:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 15
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # KillAura(D) - Rotations the server never sees (silent aim) plus pitch locks.
+    D:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: true
+        vl: 15
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Wall hit detection. Smacking people through walls. Dumb and detectable.
+    E:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: true
+        vl: 15
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Packet criticals. Those tiny fake hops for free crits mid-fight.
+    F:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: true
+        vl: 15
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # KillAura(G) - Swaps targets faster than any human hand could. Mosh pit beware though.
+    G:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: true
+        vl: 15
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # KillAura(H) - Attack rhythm too perfect to be a hand. Machines click even, humans dont.
+    H:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 10
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  # ---------------------------------------------------------------------------- #
+  # AIM CHECKS - intentionally minimal (free plugin).                            #
+  # Three basic GCD variants only: enough to catch shitty / somewhat decent     #
+  # aim assist, not enough to hand cheat devs a bypass spec.                    #
+  # ---------------------------------------------------------------------------- #
+  AIM:
+    # Aim(A) - Basic GCD validity (rotation step maps to a real sensitivity).
+    A:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Aim(B) - Basic grid snap (valid step, but rotations land off-grid).
+    B:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Aim(C) - Basic constant rotation (identical yaw corrections while fighting).
+    C:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  # ---------------------------------------------------------------------------- #
+  # --- AUTOCLICKER CHECKS ------------------------------------------------------- #
+  # Analyzes left-click animation packets for statistical patterns, CPS caps,    #
+  # double-clicks, and GCD grid locking.                                         #
+  # ---------------------------------------------------------------------------- #
+  AUTOCLICKER:
+    max_cps: 22
+    count_ground_punches: false
+    # AutoClicker(A) - Clicks too consistent to be a finger. Stats don't lie.
+    A:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # AutoClicker(B) - Same exact delay over and over. Nobody clicks like that.
+    B:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Hard CPS cap (see max_cps above). Past it = not human. Simple as.
+    C:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # AutoClicker(D) - Double-clicks faster than hardware should allow. Under 8ms, sus.
+    D:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Click delays sitting on a grid = macro timing. Hands don't do grids.
+    E:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  # ---------------------------------------------------------------------------- #
+  # HITBOX & REACH CHECKS - simple, no ping backtrack by design.                 #
+  # Single eye + single ray + latest snapshot. Lenient on purpose so lag        #
+  # without compensation can't false flag. Catches blatant abuse, not subtle.   #
+  # ---------------------------------------------------------------------------- #
+  HITBOX:
+    # Hitbox(A) - Aiming nowhere near the body but landing hits anyway. Blatant stuff only.
+    A:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: false
+        vl: 65
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  REACH:
+    # Reach(A) - Hitting from too far away. Lenient on purpose so lag can't false it.
+    A:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 10
+      punishment:
+        enabled: false
+        vl: 65
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  # ---------------------------------------------------------------------------- #
+  # --- CRYSTAL & ANCHOR AURA CHECKS ---------------------------------------------- #
+  # Fast place-to-break speed and zero-tick ID prediction macros.                #
+  # ---------------------------------------------------------------------------- #
+  CRYSTAL:
+    # CrystalAura(A) - Places then breaks crystals faster than should be possible.
+    A:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: false
+        vl: 10
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  ANCHOR:
+    # AnchorAura(A) - Charges and blows anchors inhumanly fast. Shitty cheat, catches the lazy ones.
+    A:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: false
+        vl: 10
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  # ---------------------------------------------------------------------------- #
+  # --- LAG & LATENCY ABUSE CHECKS ----------------------------------------------- #
+  # Backtrack assist, entity desync, and Spearman rank ping-correlation.        #
+  # ---------------------------------------------------------------------------- #
+  LAG:
+    # Lag(A) - Hits you where you were half a second ago. Backtrack, basically.
+    A:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 10
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Lag(B) - Abuses entity interpolation to reach further. Sneaky-ish one.
+    B:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 10
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Lag(C) - Compares ping vs flags over time. Slow burn, don't expect instant results.
+    C:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 10
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  # ---------------------------------------------------------------------------- #
+  # --- SCAFFOLD & BRIDGING AUTOMATION CHECKS ------------------------------------ #
+  # Four geometry/physics-anchored detections: placement line-of-sight,          #
+  # placement reach, tower metronome physics, and occupied-cell placement.      #
+  # ---------------------------------------------------------------------------- #
+  SCAFFOLD:
+    # Scaffold(A) "Rotation" - places a block their camera genuinely cannot see.
+    # Rotation-less and aim-assist placement fail the eye->face ray test; godbridge
+    # and telly pass because their rays really do intersect (0.10 expansion).
+    A:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: true
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Scaffold(B) "Reach" - places blocks from beyond the block interaction range.
+    # Attribute-aware (creative/modified ranges respected) + 0.25 jitter allowance.
+    B:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: true
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Scaffold(C) "Motion" - tower metronome physics. Legit jump-towering needs a
+    # full jump arc per level; cheats place faster. Jump-strength-scaled threshold
+    # so Jump Boost users never false.
+    C:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 8
+      punishment:
+        enabled: true
+        vl: 30
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Scaffold(D) "Face" - places INTO an already-occupied solid cell
+    # (ghost/desync placement). Skips replaceable/liquid targets.
+    D:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: true
+        vl: 25
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  # ---------------------------------------------------------------------------- #
+  # --- WORLD, PHASE & FAST BREAK CHECKS ----------------------------------------- #
+  # ---------------------------------------------------------------------------- #
+  PHASE:
+    # Phase(A) - Standing inside solid blocks. Off by default, still too trigger-happy.
+    A:
+      enabled: false
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  FAST_BREAK:
+    # FastBreak(A) - Breaks blocks faster than the tool allows. Does the math per block.
+    A:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: true
+        vl: 10
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  RAYCAST:
+    # Raycast(A) - Interacts with blocks it can't see or reach. Off for now, noisy.
+    A:
+      enabled: false
+      lagback:
+      punishment:
+        enabled: true
+        vl: 15
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  # ---------------------------------------------------------------------------- #
+  # --- PACKET INTEGRITY & PROTOCOL EXPLOIT CHECKS -------------------------------- #
+  # ---------------------------------------------------------------------------- #
+  # Numbers, then letters. No D, it was blank. Most are order and sanity
+  # checks no legit client trips. If one annoys you, dissable that one letter.
+  # Direct-rejecting letters (O, Q, Z - hotbar slots, spectate) honor the
+  # per-check "cancel" switch: cancel: false makes them observe-only.
+  BAD_PACKET:
+    # BadPacket(5) - Bad block places. Null face or clicks outside the block.
+    5:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(6) - Bad dig order. Finishing digs that never started.
+    6:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(8) - Digging blocks way out of reach. Nukers guessing positions.
+    8:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(A) - Flying without the server ever allowing it. Spoofed abilities.
+    A:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(B) - Flying-only packets 20+ in a row while moving. Positions got eaten.
+    B:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(D) - Duplicate sprint/sneak state. Real clients transition once.
+    D:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 10
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(E) - Interacted with themselves. Attacking your own entity ID.
+    E:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(F) - Non-finite rotations. NaN or infinite yaw/pitch.
+    F:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 10
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(G) - Positions outside the world. Deep void or past build limit.
+    G:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 1
+      punishment:
+        enabled: false
+        vl: 10
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(H) - Attack order burst. Different target every few ms is multi-aura.
+    H:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(I) - Impossible position claims. A position packet that jumps
+    # teleport-distance with no teleport explaining it exists to force server
+    # corrections - the "far position packet" disabler. Rejected at the door
+    # (server never sees it, trackers never adopt it) and flagged.
+    # cancel: false = observe-only (flags still stream, packets pass through).
+    I:
+      enabled: true
+      lagback:
+      cancel: true
+      punishment:
+        # Off by default: a single plugin/server teleport we failed to match
+        # could otherwise kick a legitimate player. Admins can enable it.
+        enabled: false
+        vl: 5
+        command: "kick %player% [Truthful] Packet Abuse"
+        banwave: false
+    # BadPacket(J) - Swaps hotbar slots right as blocks go down. Auto-tool shuffle.
+    J:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(K) - Entity action spam. Same action twice in 20ms, or 30+ a second.
+    K:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(L) - Teleport flood. Forces server corrections to farm exemptions.
+    L:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(M) - Places blocks right after hitting. Post-attack placement.
+    M:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(N) - Starts digging right after hitting. Post-attack digs.
+    N:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(O) - Negative hotbar slot. There is no slot -1. Cancelled on sight.
+    O:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 10
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(P) - Sneaks right after hitting. Auto-block tell.
+    P:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(Q) - Hotbar slot past 8. The bar ends at 8. Cancelled on sight.
+    Q:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 10
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(R) - Swaps slots right after hitting. Post-attack weapon shuffle.
+    R:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(S) - Interaction sequence drift. Counters must increase by exactly 1.
+    S:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 10
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(T) - Answers keepalives nobody sent. Replies vs asked, self-calibrating.
+    T:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(U) - Window click buttons out of range. Vanilla is bound to its UI.
+    U:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 10
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(V) - Spoofed steer values. NaN or past double range isn't steering.
+    V:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(Y) - NaN coordinates. Not-a-Number isn't a location.
+    Y:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 10
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # BadPacket(Z) - Spectate packets outside spectator mode.
+    Z:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 10
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  PACKET_ORDER:
+    # PacketOrder(A) - Places blocks without swinging. Silent place, basically.
+    A:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: true
+        vl: 15
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # PacketOrder(B) - Attacks mid-bite while eating. NoSlow with extra steps.
+    B:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 20
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # PacketOrder(C) - Places AND breaks a crystal in the same tick. Only bots do that.
+    C:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: true
+        vl: 10
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # PacketOrder(D) - Hits entities without swinging. The arm has to move, man.
+    D:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: true
+        vl: 15
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # PacketOrder(E) - Fights while the inventory is open. Inventory aura, duh.
+    E:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: true
+        vl: 15
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  INVALID:
+    # Invalid(A) - Looks further up than straight up. Pitch past 90 isn't a thing.
+    A:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: true
+        vl: 5
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  CRASHER:
+    # Crasher(A) - Tries to crash the server with fat packets. Books, NBT, the usual.
+    # Channel names are validated per the client's protocol version: modern
+    # clients get identifier validation (namespaced pattern, 64-char platform
+    # bound) - a hardcoded length cutoff used to reject legal modded channels.
+    # Payload bounds are unchanged.
+    A:
+      enabled: true
+      lagback:
+      # cancel: false = observe-only (flags/alerts but no packet rejection).
+      cancel: true
+      punishment:
+        enabled: true
+        vl: 2
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  INVENTORY:
+    # Inventory(A) - Sprints around with the inventory open. Inventory move, classic.
+    A:
+      enabled: true
+      lagback: inherit
+      lagback-vl: 5
+      punishment:
+        enabled: true
+        vl: 15
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  BARITONE:
+    # Baritone(A) - Moves on perfect 45-degree lines like a bot pathing. Because it is one.
+    A:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Baritone(B) - Mines with a locked camera. Stares into the void while working, sure.
+    B:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Baritone(C) - Breaks blocks on a perfect timer. Humans get tired, bots don't.
+    C:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+
+  SPRINT:
+    # Sprint(A) - Sprints while blind or starving. Vanilla says no. That's the check.
+    A:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false
+    # Sprint(B) - Sprints in a direction the keys don't support. Omnisprint, caught.
+    B:
+      enabled: true
+      lagback:
+      punishment:
+        enabled: false
+        vl: 50
+        command: "kick %player% Unfair Advantage"
+        banwave: false

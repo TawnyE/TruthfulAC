@@ -9,7 +9,9 @@ import ret.tawny.truthful.config.api.Configuration;
 import ret.tawny.truthful.listener.BrandListener;
 
 public final class TruthfulPlugin extends JavaPlugin {
-    private Configuration configuration;
+    // Volatile: packet threads read this on hot paths while /truthful reload
+    // replaces it. A plain field let them keep seeing the old object per JMM.
+    private volatile Configuration configuration;
 
     @Override
     public void onLoad() {
@@ -26,6 +28,7 @@ public final class TruthfulPlugin extends JavaPlugin {
         log("§7Initializing configuration...");
 
         this.configuration = new Configuration(this);
+        logEnvironment();
         if (!this.configuration.validateOrRepair()) {
             getLogger().severe("Configuration was invalid. A backup was written to config.yml.broken and default config restored.");
             Bukkit.getPluginManager().disablePlugin(this);
@@ -34,6 +37,15 @@ public final class TruthfulPlugin extends JavaPlugin {
 
         PacketEvents.getAPI().init();
         PacketEvents.getAPI().getEventManager().registerListener(new BrandListener());
+
+        // Pre-warm PacketEvents' block-state registry: without this, the
+        // lazy mapping load (~220ms of NBT parsing) lands inside the first
+        // login chunk build on the main thread (visible as startup lag).
+        try {
+            com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState
+                    .getByString("minecraft:stone");
+        } catch (Throwable ignored) {
+        }
 
         log("§7Loading core systems...");
 
@@ -61,11 +73,52 @@ public final class TruthfulPlugin extends JavaPlugin {
 
     public synchronized void reloadConfiguration() {
         this.reloadConfig();
-        this.configuration = new Configuration(this);
+        final Configuration fresh = new Configuration(this);
+        // Startup validated the config; reloads did not, so a bad value only
+        // surfaced at some later cold read. Validate the fresh instance before
+        // publishing it.
+        try {
+            if (!fresh.validateOrRepair()) {
+                getLogger().warning("Configuration issues detected during reload; defaults were repaired.");
+            }
+        } catch (Throwable t) {
+            getLogger().warning("Configuration validation failed during reload: " + t.getMessage());
+        }
+        this.configuration = fresh;
     }
 
     private void log(String message) {
         Bukkit.getConsoleSender().sendMessage("§8[§bTruthfulAC§8] " + message);
+    }
+
+    // Prints the exact network stack on every boot. Version-guessing from
+    // memory is how disconnect mysteries stay mysteries, so this line ends it.
+    private void logEnvironment() {
+        String serverVer;
+        try {
+            serverVer = Bukkit.getBukkitVersion();
+        } catch (Throwable t) {
+            serverVer = "unknown";
+        }
+        boolean txnPing;
+        try {
+            txnPing = getConfiguration() != null && getConfiguration().isTransactionPingEnabled();
+        } catch (Throwable t) {
+            txnPing = true;
+        }
+        Bukkit.getConsoleSender().sendMessage("§8[§bTruthfulAC§8] §7Server: §f" + serverVer
+                + " §7| PE: §f" + pluginVersion("packetevents")
+                + " §7| ViaVersion: §f" + pluginVersion("ViaVersion")
+                + " §7| ViaBackwards: §f" + pluginVersion("ViaBackwards")
+                + " §7| TxnPing: §f" + (txnPing ? "ON" : "OFF"));
+    }
+
+    private static String pluginVersion(String name) {
+        try {
+            org.bukkit.plugin.Plugin plugin = Bukkit.getPluginManager().getPlugin(name);
+            if (plugin != null) return plugin.getDescription().getVersion();
+        } catch (Throwable ignored) {}
+        return "not installed";
     }
 
     private void printBanner() {

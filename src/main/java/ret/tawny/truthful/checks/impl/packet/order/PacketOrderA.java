@@ -44,17 +44,22 @@ public final class PacketOrderA extends Check {
 
         // Check block placements
         else if (type == PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT) {
+            // Hold-click repeats: the client auto-places against the same
+            // target without re-swinging per packet. Repeats are exempt.
+            boolean repeat = data.getTicksTracked() - state.lastPlaceTick <= 4;
+            if (repeat) { state.lastPlaceTick = data.getTicksTracked(); buffer.decrease(player, 0.2); return; }
+            state.lastPlaceTick = data.getTicksTracked();
             int diff = data.getTicksTracked() - state.lastSwingTick;
 
-            // Swing should have occurred within the last 2 ticks  
-            // (handles [Swing, Flying, Place] and [Swing, Place] orderings)
-            if (diff > 2) {
-                // No recent swing — possible scaffold/auto-place
+            // Swing must be near the place. Modern clients fire placement
+            // RETRIES per face/interaction while holding or jitter-clicking
+            // with a single swing per click - a tight 2-tick window flags
+            // legit spam. 5 ticks covers click cadence + tick bundles.
+            if (diff > 5) {
                 if (state.pendingPlaceTick == -1) {
                     state.pendingPlaceTick = data.getTicksTracked();
                 }
             } else {
-                // Valid swing → place sequence
                 state.pendingPlaceTick = -1;
                 buffer.decrease(player, 0.2);
             }
@@ -63,9 +68,8 @@ public final class PacketOrderA extends Check {
         // Check timeout on flying packets
         else if (WrapperPlayClientPlayerFlying.isFlying(type)) {
             if (state.pendingPlaceTick != -1) {
-                // Allow 2 ticks grace for the swing to arrive after the place
-                if (data.getTicksTracked() - state.pendingPlaceTick > 2) {
-                    if (buffer.increase(player, 1.0) > 6.0) {
+                if (data.getTicksTracked() - state.pendingPlaceTick > 4) {
+                    if (buffer.increase(player, 1.0) > 8.0) {
                         flag(data, "Block placement without animation");
                         buffer.reset(player, 3.0);
                     }
@@ -85,6 +89,7 @@ public final class PacketOrderA extends Check {
 
     private static class PlaceOrderState {
         int lastSwingTick = -100;
+        int lastPlaceTick = -100;
         int pendingPlaceTick = -1;
     }
 }

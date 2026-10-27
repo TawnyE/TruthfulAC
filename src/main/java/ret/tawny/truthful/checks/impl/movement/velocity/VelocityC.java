@@ -7,6 +7,7 @@ import ret.tawny.truthful.checks.api.Check;
 import ret.tawny.truthful.checks.api.CheckBuffer;
 import ret.tawny.truthful.checks.api.data.CheckData;
 import ret.tawny.truthful.checks.api.data.CheckType;
+import ret.tawny.truthful.data.ExemptionType;
 import ret.tawny.truthful.data.PlayerData;
 import ret.tawny.truthful.sync.VelocityQueue;
 import ret.tawny.truthful.utils.world.BlockPropertyRegistry;
@@ -31,6 +32,23 @@ public final class VelocityC extends Check {
         VelocityQueue queue = data.getVelocities();
         if (queue.isEmpty()) return;
 
+        // Only judge during active acknowledged velocity. Running on every
+        // tick with anything in the queue flags normal PvP movement.
+        if (!queue.hasAcknowledgedVelocity(5, false)) {
+            buffer.decrease(data.getPlayer(), 0.25D);
+            return;
+        }
+
+        if (data.isInLiquid() || data.isInWeb() || data.isOnClimbable()
+                || data.isNearVehicle() || data.isUnderBlock()
+                || data.isGliding() || data.isRiptiding() || data.isExempt(ExemptionType.RIPTIDE)
+                || data.getVelocities().hasExplosionVelocity() || data.isInExplosionGraceWindow(1500L)
+                || data.isExempt(ExemptionType.SPEAR_LUNGE) || data.isExempt(ExemptionType.MACE_SMASH)
+                || data.isExempt(ExemptionType.WIND_CHARGE)) {
+            buffer.decrease(data.getPlayer(), 0.25D);
+            return;
+        }
+
         double deltaXZ = data.getDeltaXZ();
         boolean flagged = false;
         double severity = 0;
@@ -44,8 +62,10 @@ public final class VelocityC extends Check {
 
                 if (expectedXZ < 0.08D || data.isUnderBlock() || isNearWall(data) || data.isNearEntity()) continue;
 
-                double friction = data.isServerGround() ? computeGroundFriction(data) : 0.91D;
-                double expectedDecaySpeed = (expectedXZ * friction);
+                // VelocityQueue has already decayed this entry after the prior
+                // position response. Applying friction again here underestimates
+                // legal knockback and makes the decay window inconsistent.
+                double expectedDecaySpeed = expectedXZ;
 
                 if (deltaXZ < expectedDecaySpeed * 0.30D && !data.isServerGround()) {
                     flagged = true;
@@ -57,12 +77,18 @@ public final class VelocityC extends Check {
         }
 
         if (flagged) {
-            flag(data, flagReason, severity);
             if (buffer.increase(data.getPlayer(), severity) > 6.0D) {
+                double kbRes;
+                try {
+                    kbRes = data.getKnockbackResistance();
+                } catch (Throwable ignored) {
+                    kbRes = 0.0D;
+                }
+                flag(data, flagReason + String.format(" kbRes=%.2f", kbRes), Math.max(1.0D, severity));
                 buffer.reset(data.getPlayer(), 2.0D);
             }
         } else {
-            buffer.decrease(data.getPlayer(), 0.1D);
+            buffer.decrease(data.getPlayer(), 0.2D);
         }
     }
 

@@ -1,7 +1,6 @@
 package ret.tawny.truthful.checks.impl.packet.badpacket;
 
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -12,58 +11,52 @@ import ret.tawny.truthful.checks.api.data.CheckData;
 import ret.tawny.truthful.checks.api.data.CheckType;
 import ret.tawny.truthful.data.PlayerData;
 
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-
-
+/**
+ * BadPacketA - spoofed abilities. Flying without the server ever allowing
+ * flight. Creative and spectator grant it, everyone else flapping around
+ * up there is lying.
+ */
 @CheckData(order = 'A', type = CheckType.BAD_PACKET)
 public final class BadPacketA extends Check {
 
     private final CheckBuffer buffer = new CheckBuffer(10.0);
-    private final Map<UUID, PacketCounter> packetMap = new ConcurrentHashMap<>();
 
     @Override
     public void handlePacketPlayerReceive(final PacketReceiveEvent event) {
-        final Player player = (Player) event.getPlayer();
-        final PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
+        // Runs on every packet on purpose: the state read is two cached
+        // booleans, and a fly hacker should trip this within a second.
+        if (!(event.getPlayer() instanceof Player player)) return;
+        PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
+        if (data == null || data.isServerFrozen()) return;
 
-        if (data == null || player.getGameMode() == GameMode.CREATIVE)
+        boolean flying;
+        boolean allowed;
+        try {
+            flying = data.isFlying();
+            allowed = data.isAllowFlight();
+        } catch (Throwable ignored) {
             return;
+        }
 
-        // Resync: Ignore packet spikes during lagbacks/teleports
-        if (data.isServerFrozen() || data.isTeleportTick()) return;
-
-        PacketCounter counter = packetMap.computeIfAbsent(player.getUniqueId(), k -> new PacketCounter());
-
-        counter.packets++;
-        long now = System.currentTimeMillis();
-
-        // 1. Evaluation Interval: 1 Second
-        if (now - counter.lastClear > 1000) {
-
-            // Limit: 800 packets/sec.
-            // Vanilla typically sends 100-300 including movement, interaction, and status.
-            if (counter.packets > 800) {
-                if (buffer.increase(player, 1.0) > 5.0) {
-                    flag(data, "Packet Flood Detection. Rate: " + counter.packets + "/s");
-                }
-            } else {
+        if (flying && !allowed) {
+            // Real flight is airborne by definition. Click/placement storms
+            // can sample a transient flying-cache blip while the player is
+            // standing on the ground - never count those.
+            if (data.isGliding() || data.getAirTicks() < 5) {
                 buffer.decrease(player, 0.5);
+                return;
             }
-            counter.packets = 0;
-            counter.lastClear = now;
+            if (buffer.increase(player, 1.5) > 4.0) {
+                flag(data, "Flying without permission");
+                buffer.reset(player, 2.0);
+            }
+        } else {
+            buffer.decrease(player, 0.5);
         }
     }
 
     @EventHandler
-    public void onQuit(PlayerQuitEvent event) {
-        packetMap.remove(event.getPlayer().getUniqueId());
+    public void onQuit(final PlayerQuitEvent event) {
         buffer.remove(event.getPlayer());
-    }
-
-    private static class PacketCounter {
-        int packets = 0;
-        long lastClear = System.currentTimeMillis();
     }
 }

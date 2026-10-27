@@ -56,8 +56,13 @@ public final class GroundSpoofG extends Check {
 
             if (data.getAirTicks() < 5) return;
 
-            // Use the thread-safe block cache to see if they are actually in the air
-            boolean physicallyOnGround = WorldUtils.safeGround(data.getLocation(), data.getWorldCache());
+            // Collider-based support probe (sneak-edge tolerant).
+            boolean physicallyOnGround = WorldUtils.hasSupportBelow(data, 0.10D);
+
+            // Shape-boundary fallback: beds and cache-missed partial blocks.
+            if (!physicallyOnGround && WorldUtils.isAtShapeBoundary(data)) {
+                physicallyOnGround = true;
+            }
 
             if (!physicallyOnGround) {
 
@@ -72,7 +77,7 @@ public final class GroundSpoofG extends Check {
                 }
 
                 if (buffer.increase(player, 1.0) > 5.0) {
-                    flag(data, "Ground Status Pulse (No Movement)");
+                    flag(data, "Ground Status Pulse (No Movement) " + ret.tawny.truthful.debug.DebugContext.build(data) + ret.tawny.truthful.debug.DebugContext.blocks(data));
                     buffer.reset(player, 2.0);
                 }
             } else {

@@ -14,7 +14,7 @@ public final class MovementContext {
         this.web = data.isInWeb();
         this.powderSnow = data.isExempt(ExemptionType.POWDER_SNOW);
         this.slimeBounce = data.getTicksTracked() - data.getLastSlimeTick() < 8;
-        this.honey = data.getTicksTracked() - data.getLastSoulSandTick() < 8;
+        this.honey = data.getTicksTracked() - data.getLastHoneyTick() < 8;
     }
 
     public boolean isLiquid() { return liquid; }

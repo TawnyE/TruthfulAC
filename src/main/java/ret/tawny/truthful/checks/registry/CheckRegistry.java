@@ -19,7 +19,7 @@ import ret.tawny.truthful.checks.impl.movement.baritone.BaritoneA;
 import ret.tawny.truthful.checks.impl.movement.baritone.BaritoneB;
 import ret.tawny.truthful.checks.impl.movement.baritone.BaritoneC;
 import ret.tawny.truthful.checks.impl.movement.inventory.InventoryA;
-import ret.tawny.truthful.checks.impl.movement.simulation.*;
+import ret.tawny.truthful.checks.impl.movement.simulation.Simulation;
 import ret.tawny.truthful.checks.impl.movement.spoof.*;
 import ret.tawny.truthful.checks.impl.movement.velocity.*;
 import ret.tawny.truthful.checks.impl.packet.badpacket.*;
@@ -32,7 +32,10 @@ import ret.tawny.truthful.checks.impl.packet.timer.TimerA;
 import ret.tawny.truthful.checks.impl.raycast.RaycastA;
 import ret.tawny.truthful.checks.impl.world.fastbreak.FastBreakA;
 import ret.tawny.truthful.checks.impl.world.phase.PhaseA;
-import ret.tawny.truthful.checks.impl.world.scaffold.*;
+import ret.tawny.truthful.checks.impl.world.scaffold.ScaffoldFace;
+import ret.tawny.truthful.checks.impl.world.scaffold.ScaffoldMotion;
+import ret.tawny.truthful.checks.impl.world.scaffold.ScaffoldReach;
+import ret.tawny.truthful.checks.impl.world.scaffold.ScaffoldRotation;
 import ret.tawny.truthful.utils.reflection.Manager;
 
 import java.util.ArrayList;
@@ -49,19 +52,11 @@ public final class CheckRegistry extends Manager<Class<? extends Check>, Check> 
     private final List<Check> quitChecks = new ArrayList<>();
 
     public CheckRegistry() {
-        // Aim Checks
+        // Aim Checks - intentionally minimal (3 basic GCD variants only).
+        // Free plugin: no entropy/jerk/ML heuristics that hand cheat devs a spec.
         register(AimA.class, new AimA());
         register(AimB.class, new AimB());
-        register(AimD.class, new AimD());
-        register(AimE.class, new AimE());
-        register(AimF.class, new AimF());
-        register(AimG.class, new AimG());
-        register(AimH.class, new AimH());
-        register(AimI.class, new AimI());
-        register(AimJ.class, new AimJ());
-        register(AimK.class, new AimK());
-        register(AimL.class, new AimL());
-        register(AimX.class, new AimX());
+        register(AimC.class, new AimC());
 
         // AutoClicker Checks
         register(AutoClickerA.class, new AutoClickerA());
@@ -91,13 +86,8 @@ public final class CheckRegistry extends Manager<Class<? extends Check>, Check> 
         register(BaritoneB.class, new BaritoneB());
         register(BaritoneC.class, new BaritoneC());
 
-        // Simulation Checks
-        register(SimulationA.class, new SimulationA());
-        register(SimulationB.class, new SimulationB());
-        register(SimulationC.class, new SimulationC());
-        register(SimulationD.class, new SimulationD());
-        register(SimulationE.class, new SimulationE());
-        register(SimulationF.class, new SimulationF());
+        // Simulation: one engine, one verdict — replaces the old A-E and Vector A-C suite.
+        register(Simulation.class, new Simulation());
 
         // Velocity Checks
         register(VelocityA.class, new VelocityA());
@@ -123,23 +113,51 @@ public final class CheckRegistry extends Manager<Class<? extends Check>, Check> 
         register(FastBreakA.class, new FastBreakA());
         register(PhaseA.class, new PhaseA());
 
-        // Scaffold Checks
-        register(ScaffoldA.class, new ScaffoldA());
-        register(ScaffoldB.class, new ScaffoldB());
-        register(ScaffoldC.class, new ScaffoldC());
-        register(ScaffoldD.class, new ScaffoldD());
-        register(ScaffoldE.class, new ScaffoldE());
-        register(ScaffoldF.class, new ScaffoldF());
-        register(ScaffoldG.class, new ScaffoldG());
-        register(ScaffoldH.class, new ScaffoldH());
+        // Scaffold: four focused checks replacing the old A-H suite - each is
+        // physics/geometry-anchored (line-of-sight, reach, tower metronome,
+        // occupied-cell placement) instead of statistical pattern guessing.
+        register(ScaffoldRotation.class, new ScaffoldRotation());
+        register(ScaffoldReach.class, new ScaffoldReach());
+        register(ScaffoldMotion.class, new ScaffoldMotion());
+        register(ScaffoldFace.class, new ScaffoldFace());
 
         // Raycast
         register(RaycastA.class, new RaycastA());
 
         // Packet Integrity
-        register(BadPacketA.class, new BadPacketA());
         register(CrasherA.class, new CrasherA());
         register(InvalidA.class, new InvalidA());
+
+        // BadPackets, the whole lot. Numbers first, then letters.
+        // Removed dupe/dead slots: 9 & X (=worse PacketOrderD/E), C (=InvalidA),
+        // W (=weaker PacketOrderE). I is back with a new purpose: the
+        // impossible-position guard (far-packet disabler).
+        register(BadPacket5.class, new BadPacket5());
+        register(BadPacket6.class, new BadPacket6());
+        register(BadPacket8.class, new BadPacket8());
+        register(BadPacketA.class, new BadPacketA());
+        register(BadPacketB.class, new BadPacketB());
+        register(BadPacketD.class, new BadPacketD());
+        register(BadPacketE.class, new BadPacketE());
+        register(BadPacketF.class, new BadPacketF());
+        register(BadPacketG.class, new BadPacketG());
+        register(BadPacketH.class, new BadPacketH());
+        register(BadPacketI.class, new BadPacketI());
+        register(BadPacketJ.class, new BadPacketJ());
+        register(BadPacketK.class, new BadPacketK());
+        register(BadPacketL.class, new BadPacketL());
+        register(BadPacketM.class, new BadPacketM());
+        register(BadPacketN.class, new BadPacketN());
+        register(BadPacketO.class, new BadPacketO());
+        register(BadPacketP.class, new BadPacketP());
+        register(BadPacketQ.class, new BadPacketQ());
+        register(BadPacketR.class, new BadPacketR());
+        register(BadPacketS.class, new BadPacketS());
+        register(BadPacketT.class, new BadPacketT());
+        register(BadPacketU.class, new BadPacketU());
+        register(BadPacketV.class, new BadPacketV());
+        register(BadPacketY.class, new BadPacketY());
+        register(BadPacketZ.class, new BadPacketZ());
 
         // Packet Order
         register(PacketOrderA.class, new PacketOrderA());
@@ -148,17 +166,9 @@ public final class CheckRegistry extends Manager<Class<? extends Check>, Check> 
         register(PacketOrderD.class, new PacketOrderD());
         register(PacketOrderE.class, new PacketOrderE());
 
-        // Sprint & BadPacket Continued
+        // Sprint
         register(SprintA.class, new SprintA());
         register(SprintB.class, new SprintB());
-        register(BadPacketC.class, new BadPacketC());
-        register(BadPacketD.class, new BadPacketD());
-        register(BadPacketE.class, new BadPacketE());
-        register(BadPacketG.class, new BadPacketG());
-        register(BadPacketH.class, new BadPacketH());
-        register(BadPacketI.class, new BadPacketI());
-        register(BadPacketJ.class, new BadPacketJ());
-        register(BadPacketK.class, new BadPacketK());
 
         // Aura
         register(CrystalAuraA.class, new CrystalAuraA());
@@ -216,7 +226,46 @@ public final class CheckRegistry extends Manager<Class<? extends Check>, Check> 
         this.getCollection().forEach(Check::init);
         long enabledChecks = this.getCollection().stream().filter(Check::isEnabled).count();
         Truthful.getInstance().getPlugin().getLogger().info("Successfully loaded and registered " + enabledChecks + " checks.");
+        recomputePipelineRequirements();
     }
+
+    // =====================================================================
+    // PIPELINE REQUIREMENTS (derived from the enabled-check set)
+    // =====================================================================
+    // The packet pipeline keeps a per-player world model (chunk decode, block
+    // tracking, ground probes, environment scans) and a compensated entity
+    // tracker running at all times - expensive even when nothing reads them.
+    // These aggregates are derived from which checks are ENABLED, so a
+    // profile running only click checks pays nothing for world/entity state.
+    // Rebuilt on init and on every GUI toggle (see Check.setEnabled).
+    // Click timestamps, transactions, teleport bookkeeping and digging state
+    // are NOT gated: those keep packet ordering and gameplay exemptions
+    // correct regardless of which checks read them.
+
+    private volatile boolean worldConsumed = true;
+    private volatile boolean entityTrackingConsumed = true;
+
+    public void recomputePipelineRequirements() {
+        boolean world = false;
+        boolean entities = false;
+        for (Check check : getCollection()) {
+            if (!check.isEnabled()) continue;
+            if (check.requiresWorld()) world = true;
+            if (check.requiresEntityTracking()) entities = true;
+            if (world && entities) break;
+        }
+        this.worldConsumed = world;
+        this.entityTrackingConsumed = entities;
+    }
+
+    /** True when at least one enabled check reads compensated block data. */
+    public boolean isWorldConsumed() { return worldConsumed; }
+
+    /** True when at least one enabled check reads the compensated entity tracker. */
+    public boolean isEntityTrackingConsumed() { return entityTrackingConsumed; }
+
+    /** True when the environment/entity scan task has any consumer at all. */
+    public boolean isEnvironmentScanConsumed() { return worldConsumed || entityTrackingConsumed; }
 
     public List<Check> getMovementChecks() { return movementChecks; }
     public List<Check> getPacketChecks() { return packetChecks; }

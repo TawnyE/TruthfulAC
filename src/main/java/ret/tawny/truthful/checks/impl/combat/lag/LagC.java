@@ -15,12 +15,10 @@ import ret.tawny.truthful.checks.api.data.CheckType;
 import ret.tawny.truthful.data.PlayerData;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.IntStream;
 
 @CheckData(order = 'C', type = CheckType.LAG)
 public final class LagC extends Check {
@@ -38,6 +36,8 @@ public final class LagC extends Check {
         final int[] binAttackCounts = new int[PING_BIN_COUNT];
         final int[] binViolationCounts = new int[PING_BIN_COUNT];
         int totalSamples = 0;
+        /** Last tick THIS check flagged (not any check's flag). */
+        int lastFlagTick = -100;
     }
 
     private static int pingBin(long pingMs) {
@@ -62,21 +62,37 @@ public final class LagC extends Check {
         long ping = data.getPing();
         if (ping <= 0) return;
 
-        boolean recentViolation = data.getTicksTracked() - data.getLastFlagTick() <= 1;
-
         int bin = pingBin(ping);
         UUID uuid = player.getUniqueId();
         SampleBag bag = bags.computeIfAbsent(uuid, k -> new SampleBag());
+
+        // Decay: bins used to accumulate forever, so a few early flags at
+        // high ping permanently labeled the account. Halve everything once
+        // the window grows past the cap.
+        if (bag.totalSamples >= 400) {
+            for (int i = 0; i < PING_BIN_COUNT; i++) {
+                bag.binPingSums[i] /= 2;
+                bag.binAttackCounts[i] /= 2;
+                bag.binViolationCounts[i] /= 2;
+            }
+            bag.totalSamples /= 2;
+        }
+
+        // Label from THIS check's own flags only. The old label was
+        // data.getLastFlagTick() - any check's flag - which made LagC
+        // correlate its own input with every other (ping-sensitive) check's
+        // flags and self-reinforce its verdicts.
+        boolean recentViolation = data.getTicksTracked() - bag.lastFlagTick <= 1;
+
         bag.binPingSums[bin] += ping;
         bag.binAttackCounts[bin]++;
         if (recentViolation) bag.binViolationCounts[bin]++;
         bag.totalSamples++;
 
-        evaluate(player.getUniqueId(), data);
+        evaluate(player.getUniqueId(), data, bag);
     }
 
-    private void evaluate(UUID uuid, PlayerData data) {
-        SampleBag bag = bags.get(uuid);
+    private void evaluate(UUID uuid, PlayerData data, SampleBag bag) {
         if (bag == null || bag.totalSamples < MIN_SAMPLES) return;
 
         List<Integer> activeBins = new ArrayList<>();
@@ -102,9 +118,25 @@ public final class LagC extends Check {
         double rateLo = (double) bag.binViolationCounts[lowestBin] / bag.binAttackCounts[lowestBin];
         double rateHi = (double) bag.binViolationCounts[highestBin] / bag.binAttackCounts[highestBin];
 
-        // Lag abuse MUST show higher violation rate at higher ping (minimum 25% contrast)
-        if (rateHi <= rateLo || (rateHi - rateLo) < 0.25D) {
+        // Spearman with exactly two points is ALWAYS +-1.0, so with only 2 active
+        // bins the correlation term carries zero evidence. Require a much heavier
+        // rate contrast for the 2-bin case instead.
+        double requiredContrast = activeBins.size() >= 3 ? 0.25D : 0.50D;
+
+        // Lag abuse MUST show higher violation rate at higher ping (min contrast)
+        if (rateHi <= rateLo || (rateHi - rateLo) < requiredContrast) {
             buffer.decrease(data.getPlayer(), 0.10);
+            return;
+        }
+
+        // With only 2 bins, the rate contrast above IS the evidence.
+        if (activeBins.size() < 3) {
+            if (buffer.increase(data.getPlayer(), 0.6) > 6.0) {
+                flag(data, String.format("PingCorr 2-bin (pingHi=%dms rateHi=%.2f | pingLo=%dms rateLo=%.2f | n=%d)",
+                        pingHi, rateHi, pingLo, rateLo, bag.totalSamples));
+                buffer.reset(data.getPlayer(), 3.0);
+                bag.lastFlagTick = data.getTicksTracked();
+            }
             return;
         }
 
@@ -124,6 +156,7 @@ public final class LagC extends Check {
                 flag(data, String.format("PingCorr r=%.3f (pingHi=%dms rateHi=%.2f | pingLo=%dms rateLo=%.2f | n=%d)",
                         r, pingHi, rateHi, pingLo, rateLo, bag.totalSamples));
                 buffer.reset(data.getPlayer(), 3.0);
+                bag.lastFlagTick = data.getTicksTracked();
             }
         } else {
             buffer.decrease(data.getPlayer(), 0.06);
@@ -147,10 +180,17 @@ public final class LagC extends Check {
     private static int[] ranks(double[] arr) {
         int n = arr.length;
         int[] rank = new int[n];
-        IntStream.range(0, n)
-                .boxed()
-                .sorted(Comparator.comparingDouble(i -> arr[i]))
-                .forEach(sortedIdx -> rank[sortedIdx] = sortedIdx + 1);
+        // Dense ranking by sorted position. The old implementation assigned
+        // rank[originalIndex] = originalIndex + 1, i.e. the identity, which
+        // made every Spearman call return exactly 1.0 (the "r=1.000" flags
+        // with zero supporting math). n is <= 4 here, so O(n^2) is free.
+        for (int i = 0; i < n; i++) {
+            int better = 0;
+            for (int j = 0; j < n; j++) {
+                if (i != j && arr[j] < arr[i]) better++;
+            }
+            rank[i] = better + 1;
+        }
         return rank;
     }
 

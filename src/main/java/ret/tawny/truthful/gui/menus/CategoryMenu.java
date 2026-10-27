@@ -31,7 +31,7 @@ public final class CategoryMenu {
 
         Map<String, int[]> catStats = getCategoryStats();
 
-        inv.setItem(20, buildCategoryItem("Movement", catStats, GuiConstants.getMat("FEATHER"), GuiConstants.ACCENT, "Simulation, Velocity, Timer"));
+        inv.setItem(20, buildCategoryItem("Movement", catStats, GuiConstants.getMat("FEATHER"), GuiConstants.ACCENT, "Simulation, Vector, Velocity, Timer"));
         inv.setItem(22, buildCategoryItem("Combat", catStats, GuiConstants.getMat("IRON_SWORD"), GuiConstants.ERROR, "KillAura, Reach, Aim, Clicks"));
         inv.setItem(24, buildCategoryItem("World", catStats, GuiConstants.getMat("GRASS_BLOCK", "GRASS"), GuiConstants.SUCCESS, "Scaffold, FastBreak, Raycast"));
 
@@ -105,7 +105,7 @@ public final class CategoryMenu {
     public static String getCategoryForType(CheckType type) {
         switch (type) {
             case SIMULATION, VELOCITY, SPOOF, PHASE, TIMER -> { return "Movement"; }
-            case KILLAURA, AIM, HITBOX, REACH, AUTOCLICKER, CRYSTAL, ANCHOR -> { return "Combat"; }
+            case KILLAURA, AIM, HITBOX, REACH, AUTOCLICKER, CRYSTAL, ANCHOR, LAG -> { return "Combat"; }
             case SCAFFOLD, FAST_BREAK, RAYCAST -> { return "World"; }
             case BAD_PACKET, CRASHER, INVALID, SPRINT, INVENTORY, PACKET_ORDER -> { return "Packet"; }
             case BARITONE -> { return "Bot"; }

@@ -18,6 +18,7 @@ public final class BanwaveManager {
     private final Set<String> queuedPlayers = new LinkedHashSet<>();
     private WrappedTask executionTask;
     private LocalDateTime lastAutoStartTrigger;
+    private int sweepPosition;
 
     public synchronized boolean addPlayer(String playerName) {
         return queuedPlayers.add(playerName);
@@ -48,6 +49,7 @@ public final class BanwaveManager {
 
         Configuration config = Truthful.getInstance().getConfiguration();
         long intervalTicks = config.getBanwaveIntervalSeconds() * 20L;
+        sweepPosition = 0;
         executionTask = Truthful.getInstance().getServerScheduler().runGlobalTimer(() -> {
             String next;
             int position;
@@ -57,11 +59,13 @@ public final class BanwaveManager {
                     return;
                 }
                 next = queuedPlayers.iterator().next();
-                position = 1;
+                position = ++sweepPosition;
                 queuedPlayers.remove(next);
             }
 
-            final String command = "kick " + next + " [Truthful] BANWAVE";
+            // Banwave means BAN. The 'banwave.command' config decides the exact
+            // punishment so servers can route to ban plugins if they want.
+            final String command = config.getBanwaveCommand().replace("%player%", next);
             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
 
             final String sweepMessage = config.getBanwaveSweepMessage()

@@ -2,16 +2,7 @@ package ret.tawny.truthful.utils.world;
 
 import ret.tawny.truthful.data.PlayerData;
 
-/**
- * HeadHitUtils
- *
- * Centralized handling of head-hit compression and release.
- *
- * Vanilla behavior:
- * - Head collision compresses Y
- * - Horizontal velocity is preserved
- * - Momentum is released over ~2–3 ticks
- */
+
 public final class HeadHitUtils {
 
     private HeadHitUtils() {}

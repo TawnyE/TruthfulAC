@@ -11,15 +11,23 @@ public final class SetPositionPacketWrapper extends PacketWrapper {
     private final float yaw, pitch;
     private final int teleportId;
 
-    public SetPositionPacketWrapper(Object wrapper, Player player, PacketType.Play.Server type) {
+    public SetPositionPacketWrapper(Object wrapper, Player player, PacketType.Play.Server type,
+                                    double baseX, double baseY, double baseZ) {
         super(wrapper, player, type);
 
         if (wrapper instanceof WrapperPlayServerPlayerPositionAndLook) {
             WrapperPlayServerPlayerPositionAndLook posLook = (WrapperPlayServerPlayerPositionAndLook) wrapper;
             Vector3d position = posLook.getPosition();
-            this.x = position.x;
-            this.y = position.y;
-            this.z = position.z;
+            // Relative components (RA running, vehicles, some plugin teleports) are
+            // RAW deltas, not absolute coords. Resolve them against the last known
+            // client position or the teleport queue gets garbage destinations.
+            int relativeMask = posLook.getRelativeMask();
+            boolean relX = (relativeMask & 0x01) != 0;
+            boolean relY = (relativeMask & 0x02) != 0;
+            boolean relZ = (relativeMask & 0x04) != 0;
+            this.x = relX ? baseX + position.x : position.x;
+            this.y = relY ? baseY + position.y : position.y;
+            this.z = relZ ? baseZ + position.z : position.z;
             this.yaw = posLook.getYaw();
             this.pitch = posLook.getPitch();
             // Teleport ID is only available in 1.9+, default to -1 for older versions

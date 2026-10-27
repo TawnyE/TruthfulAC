@@ -36,6 +36,7 @@ public final class SprintA extends Check {
         if (data.hasPotionEffect(PotionEffectType.BLINDNESS)) {
             if (buffer.increase(player, 2.0) > 4.0) {
                 flag(data, "OmniSprint (Blindness)");
+                buffer.reset(player, 2.0);
             }
             return;
         }
@@ -46,6 +47,7 @@ public final class SprintA extends Check {
             if (buffer.increase(player, 1.0) > 5.0) {
                 // DETAILED INFO FOR ALERT
                 flag(data, String.format("OmniSprint (Hunger: %d)", foodLevel));
+                buffer.reset(player, 2.0);
             }
         } else {
             buffer.decrease(player, 0.25);

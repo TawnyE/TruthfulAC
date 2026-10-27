@@ -58,6 +58,9 @@ public final class CheckConfigMenu {
             lore.add("");
             lore.add(GuiConstants.DARK + GuiConstants.SYM_LINE + " " + GuiConstants.MUTED + "Check   " + (enabled ? GuiConstants.SUCCESS + "Enabled" : GuiConstants.ERROR + "Disabled"));
             lore.add(GuiConstants.DARK + GuiConstants.SYM_LINE + " " + GuiConstants.MUTED + "Punish  " + (punish ? GuiConstants.SUCCESS + "On" : GuiConstants.ERROR + "Off"));
+            if (!check.getTags().isEmpty()) {
+                lore.add(GuiConstants.DARK + GuiConstants.SYM_LINE + " " + GuiConstants.MUTED + "Tags    " + GuiConstants.SECONDARY + String.join(", ", check.getTags()));
+            }
             lore.add("");
             lore.add(GuiConstants.SUCCESS + "Left-Click " + GuiConstants.DARK + "to toggle state");
             lore.add(GuiConstants.SECONDARY + "Right-Click " + GuiConstants.DARK + "for check settings");

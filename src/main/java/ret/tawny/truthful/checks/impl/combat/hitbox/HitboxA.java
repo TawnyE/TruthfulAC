@@ -1,157 +1,78 @@
 package ret.tawny.truthful.checks.impl.combat.hitbox;
 
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
-import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.util.Vector;
 import ret.tawny.truthful.Truthful;
 import ret.tawny.truthful.checks.api.Check;
 import ret.tawny.truthful.checks.api.CheckBuffer;
 import ret.tawny.truthful.checks.api.data.CheckData;
 import ret.tawny.truthful.checks.api.data.CheckType;
-import ret.tawny.truthful.compensation.CompensationTracker;
 import ret.tawny.truthful.data.PlayerData;
-import ret.tawny.truthful.utils.hitbox.SimpleHitbox;
 
-import java.util.ArrayList;
-import java.util.List;
-
+/**
+ * HitboxA - the out-of-sight verdict. ReachA's Stage B does the one
+ * raycast; when the ray misses EVERY legal view of the target, the miss
+ * gets routed here. One judgment, two named outcomes - same split Grim
+ * uses.
+ */
 @CheckData(order = 'A', type = CheckType.HITBOX)
 public final class HitboxA extends Check {
 
+    // Don't judge misses at point-blank range where sub-tick motion dominates.
+    private static final double MIN_JUDGEMENT_DISTANCE = 0.60D;
+
+    private static volatile HitboxA instance;
+
     private final CheckBuffer buffer = new CheckBuffer(10.0);
 
-    @Override
-    public void handlePacketPlayerReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() != PacketType.Play.Client.INTERACT_ENTITY) return;
-        WrapperPlayClientInteractEntity wrapper = new WrapperPlayClientInteractEntity(event);
-        if (wrapper.getAction() != WrapperPlayClientInteractEntity.InteractAction.ATTACK) return;
+    public HitboxA() {
+        super();
+        instance = this;
+    }
 
-        Player player = (Player) event.getPlayer();
-        PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
-        if (data == null || data.isExempt()
-                || player.getGameMode() == GameMode.CREATIVE
-                || Truthful.getInstance().isBedrockPlayer(player)) return;
+    /**
+     * Routed from ReachA Stage B when the attack ray missed every legal view
+     * of the target. missDistance = closest the target box ever came to any
+     * plausible eye position during the window.
+     */
+    public static void routeMiss(PlayerData data, double missDistance, long ping, int window, String debug,
+                                 boolean targetIsPlayer) {
+        HitboxA self = instance;
+        if (self == null || data == null) return;
 
-        int entityId = wrapper.getEntityId();
-        CompensationTracker tracker = Truthful.getInstance().getCompensationTracker();
-        if (tracker == null) return;
+        Player player = data.getPlayer();
+        if (player == null) return;
 
-        CompensationTracker.CompensatedEntity comp = tracker.getEntityData(entityId);
-        if (comp == null) return;
-
-        CompensationTracker.EntitySnapshot latest = comp.getLatest();
-        if (latest == null) return;
-
-        SimpleHitbox box = latest.toHitbox();
-        double distToBox = box.distance(new Vector(data.getX(), data.getY() + 1.62, data.getZ()));
-
-        if (distToBox > 4.5D) {
+        // Non-player entities (NPCs, mobs, Citizens fake players) have
+        // positions we cannot reliably verify: NPC plugins move entities
+        // through NMS paths our packet tracker can't always follow, and
+        // render offsets differ from packet positions. Grim's blacklist
+        // philosophy: never judge what you can't verify. Hitbox misses on
+        // non-players are resynced, never flagged. Real-player PvP keeps
+        // full strictness.
+        if (!targetIsPlayer) {
+            self.buffer.decrease(player, 0.5D);
             return;
         }
 
-        long ping = data.getPing();
-        double pingTicks = Math.min(CompensationTracker.MAX_BACKTRACK_TICKS, Math.max(0.0, ping / 50.0));
-        int tickDelay = (int) Math.ceil(pingTicks);
-        int currentTick = tracker.getCurrentTick();
-
-        double currentEyeH = data.getEyeHeight(false, data.isSneaking(), data.isSwimming());
-        double[] possibleEyeHeights = { currentEyeH, 1.62D, 1.27D, 0.40D };
-
-        // Test actual recorded attacker locations rather than naive linear extrapolation
-        List<Vector> attackerEyePositions = new ArrayList<>();
-        attackerEyePositions.add(new Vector(data.getX(), data.getY(), data.getZ()));
-        attackerEyePositions.add(new Vector(data.getPositionTracker().getLastX(), data.getPositionTracker().getLastY(), data.getPositionTracker().getLastZ()));
-
-        List<Vector> lookDirs = new ArrayList<>();
-        lookDirs.add(getLookVector(data.getYaw(), data.getPitch()));
-        lookDirs.add(getLookVector(data.getLastYaw(), data.getPitch()));
-        lookDirs.add(getLookVector(data.getLastYaw(), data.getLastPitch()));
-
-        boolean cleanRayIntersection = false;
-        double minMissDistance = Double.MAX_VALUE;
-
-        for (int offset = -1; offset <= 1; offset++) {
-            int targetTickDelay = Math.max(0, tickDelay + offset);
-            SimpleHitbox box = comp.getHitboxAt(targetTickDelay, currentTick);
-            if (box == null) continue;
-
-            SimpleHitbox standardBox = new SimpleHitbox(box.minX, box.minY, box.minZ, 0.6, 1.8);
-            standardBox.expand(0.12D);
-
-            for (Vector basePos : attackerEyePositions) {
-                for (Vector dir : lookDirs) {
-                    for (double eyeH : possibleEyeHeights) {
-                        Vector eyePos = new Vector(basePos.getX(), basePos.getY() + eyeH, basePos.getZ());
-                        if (standardBox.intersectsRay(eyePos, dir, 6.0D)) {
-                            cleanRayIntersection = true;
-                            break;
-                        }
-                        double miss = calculateRayMissDistance(standardBox, eyePos, dir);
-                        if (miss < minMissDistance) {
-                            minMissDistance = miss;
-                        }
-                    }
-                    if (cleanRayIntersection) break;
-                }
-                if (cleanRayIntersection) break;
-            }
-            if (cleanRayIntersection) break;
-        }
-
-        if (cleanRayIntersection) {
-            buffer.decrease(player, 0.5);
+        // DESYNC SANITY: a miss beyond 3 blocks is a tracking failure,
+        // not a hitbox cheat - never flag it.
+        if (missDistance > 3.0D) {
+            self.buffer.decrease(player, 0.5D);
             return;
         }
 
-        double proximityGrace = Math.max(0.0D, 1.5D - distToBox) * 0.35D;
-        double rotDelta = Math.abs(data.getDeltaYaw()) + Math.abs(data.getDeltaPitch());
-        double allowedMiss = 0.15D + proximityGrace + (rotDelta > 8.0f ? 0.15D : 0.0D);
-
-        if (minMissDistance > allowedMiss) {
-            double expansion = minMissDistance - allowedMiss;
-            if (buffer.increase(player, 1.0 + expansion * 3.0) > 6.0) {
-                flag(data, String.format("HitboxExpansion miss=%.3f allowed=%.3f (dist=%.2fm, rotDelta=%.1f deg)",
-                        minMissDistance, allowedMiss, distToBox, rotDelta));
-                buffer.reset(player, 3.0);
+        if (missDistance >= MIN_JUDGEMENT_DISTANCE) {
+            double over = missDistance - MIN_JUDGEMENT_DISTANCE;
+            if (self.buffer.increase(player, 1.0D + over * 1.5D) > 7.0D) {
+                self.flag(data, String.format("Hitbox miss=%.3f ping=%d window=%d %s",
+                        missDistance, ping, window, debug));
+                self.buffer.reset(player, 2.5D);
             }
         } else {
-            buffer.decrease(player, 0.25);
+            self.buffer.decrease(player, 0.3D);
         }
-    }
-
-    private static double calculateRayMissDistance(SimpleHitbox box, Vector origin, Vector dir) {
-        double closestDist = Double.MAX_VALUE;
-        Vector boxCenter = new Vector(
-                (box.minX + box.maxX) * 0.5D,
-                (box.minY + box.maxY) * 0.5D,
-                (box.minZ + box.maxZ) * 0.5D
-        );
-        Vector vecToCenter = boxCenter.clone().subtract(origin);
-        double tCenter = vecToCenter.dot(dir);
-
-        double startT = Math.max(0.0D, tCenter - 1.5D);
-        double endT = Math.min(6.0D, tCenter + 1.5D);
-
-        for (double t = startT; t <= endT; t += 0.05D) {
-            Vector pointOnRay = origin.clone().add(dir.clone().multiply(t));
-            double distToBox = box.distance(pointOnRay);
-            if (distToBox < closestDist) {
-                closestDist = distToBox;
-            }
-        }
-        return closestDist == Double.MAX_VALUE ? 0.0D : closestDist;
-    }
-
-    private static Vector getLookVector(float yaw, float pitch) {
-        double ry = Math.toRadians(yaw);
-        double rp = Math.toRadians(pitch);
-        double cosP = Math.cos(rp);
-        return new Vector(-cosP * Math.sin(ry), -Math.sin(rp), cosP * Math.cos(ry));
     }
 
     @EventHandler

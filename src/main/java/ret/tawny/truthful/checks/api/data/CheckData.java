@@ -15,4 +15,14 @@ public @interface CheckData {
 
 
     String displayName() default "";
+
+    /**
+     * Marks the check as experimental. Experimental checks are still fully
+     * functional, but their tag is shown in alerts / hover / GUI (placement is
+     * configurable, see messages.check-tags) so staff know to trust them less.
+     */
+    boolean experimental() default false;
+
+    /** Free-form extra tags, e.g. {"PHYSICS", "HEURISTIC"}. Shown like experimental. */
+    String[] tags() default {};
 }

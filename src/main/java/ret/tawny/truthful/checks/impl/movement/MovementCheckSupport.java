@@ -2,6 +2,7 @@ package ret.tawny.truthful.checks.impl.movement;
 
 import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
 import org.bukkit.potion.PotionEffectType;
+import ret.tawny.truthful.Truthful;
 import ret.tawny.truthful.data.ExemptionType;
 import ret.tawny.truthful.data.PlayerData;
 import ret.tawny.truthful.prediction.UncertaintyHandler;
@@ -29,11 +30,18 @@ public final class MovementCheckSupport {
                 || data.isTeleportTick()
                 || data.isMovementExempt()
                 || data.isInsideVehicle()
+                // Vanilla flight (creative/spectator/elytra-adjacent) is not a
+                // physics check's business.
+                || data.isAllowFlight()
+                || data.isFlying()
                 || data.getTicksTracked() - data.getLastVehicleExitTick() < 10
                 || data.isRiptiding()
                 || data.isExempt(ExemptionType.RIPTIDE)
                 || data.isExempt(ExemptionType.WIND_CHARGE)
                 || data.isExempt(ExemptionType.MACE_SMASH)
+                // Spear lunges are client-side dash impulses the server never
+                // sees as a velocity packet - the engine cannot explain them.
+                || data.isExempt(ExemptionType.SPEAR_LUNGE)
                 || data.getMovementContext().isEnvironmentUnsafeForPrediction();
     }
 
@@ -47,6 +55,27 @@ public final class MovementCheckSupport {
     }
 
     /**
+     * Skip predicate for slowdown (NoSlow) checks. Unlike skipForPrediction, this
+     * intentionally does NOT skip web/honey/powder-snow contexts: those are the
+     * exact environments a slowdown check exists to police. Liquid and climbable
+     * are still handled separately by the caller.
+     */
+    public static boolean skipForSlowdown(PlayerData data) {
+        return data == null
+                || data.isServerFrozen()
+                || data.isTeleportTick()
+                || data.isMovementExempt()
+                || data.isInsideVehicle()
+                || data.isAllowFlight()
+                || data.isFlying()
+                || data.getTicksTracked() - data.getLastVehicleExitTick() < 10
+                || data.isRiptiding()
+                || data.isExempt(ExemptionType.RIPTIDE)
+                || data.isExempt(ExemptionType.WIND_CHARGE)
+                || data.isExempt(ExemptionType.MACE_SMASH);
+    }
+
+    /**
      * Liquid prediction intentionally runs in water/lava, so it must not reuse
      * the generic skip that treats liquid as an unsafe environment.
      */
@@ -56,6 +85,8 @@ public final class MovementCheckSupport {
                 || data.isTeleportTick()
                 || data.isMovementExempt()
                 || data.isInsideVehicle()
+                || data.isAllowFlight()
+                || data.isFlying()
                 || data.getTicksTracked() - data.getLastVehicleExitTick() < 10
                 || data.isRiptiding()
                 || data.isExempt(ExemptionType.RIPTIDE)
@@ -98,6 +129,67 @@ public final class MovementCheckSupport {
     // =====================================================
     // UNCERTAINTY HANDLER INTEGRATION
     // =====================================================
+
+    /**
+     * Hot-path variant of evaluateUncertainty(): same math, no allocations.
+     * (The handler variant allocates a list of sources for debugging; checks
+     * calling this per movement packet must not pay for that.)
+     */
+    public static double uncertaintySum(PlayerData data) {
+        // Single source of truth (UncertaintyHandler delegates here). Design
+        // rule per review: an attacker must never be able to PURCHASE
+        // tolerance - every entry below must be a physical state the player
+        // is genuinely in, not something a client toggles to open slack.
+        // Removed as purchasable: sprint-start (covered by dual sprint
+        // candidates), yaw jitter (covered by known-input/direction brute),
+        // the blanket low-speed +0.03, and the full-cap ground desync
+        // (halved - transitions are real but one bit of disagreement is not
+        // a 0.15-block error).
+        double total = 0.0D;
+
+        if (data.getDeltaXZ() < 0.035) total += 0.03D;
+        if (data.isInWeb()) total += 0.1D;
+        if (data.isInLiquid()) total += 0.06D;
+        if (data.isOnClimbable()) total += 0.08D;
+        if (data.isUnderBlock()) total += 0.04D;
+
+        int ticksSincePlace = data.getTicksTracked() - data.getLastBlockPlaceTick();
+        if (ticksSincePlace >= 0 && ticksSincePlace <= 3) total += 0.05D;
+
+        int ticksSinceVelocity = data.getTicksTracked() - data.getLastVelocityTick();
+        if (ticksSinceVelocity >= 0 && ticksSinceVelocity <= 5) total += 0.12D * (5 - ticksSinceVelocity);
+
+        if (data.isTeleportTick()) total += 0.5D;
+
+        int ticksSinceTeleport = data.getTicksSinceTeleport();
+        if (ticksSinceTeleport >= 0 && ticksSinceTeleport <= 3) total += 0.1D * (3 - ticksSinceTeleport);
+
+        if (data.getMovementContext().isSlimeBounce()) total += 0.08D;
+        if (data.getTicksTracked() - data.getLastIceTick() < 8) total += 0.04D;
+        if (data.getBaritoneTrust() < 50) total += 0.05D;
+        if (data.isServerGround() != data.isClientGround()) total += 0.06D;
+        if (data.getAirTicks() > 0 && data.getAirTicks() <= 3) total += 0.08D;
+        if (data.isSprinting() && data.getDeltaY() > 0.0D && data.getAirTicks() <= 5) total += 0.04D;
+
+        double tps = Truthful.getInstance().getTps();
+        if (tps < 20.0D) total += 0.02D * (20.0D - tps);
+
+        if (data.getTicksTracked() - data.getLastSoulSandTick() < 5) total += 0.03D;
+        if (data.getAirTicks() == 0 && data.getPositionTracker().getLastAirTicks() > 3) total += 0.05D;
+
+        int ticksSinceDamage = data.getTicksTracked() - data.getLastDamageTick();
+        if (ticksSinceDamage >= 0 && ticksSinceDamage < 6) total += 0.04D * (6 - ticksSinceDamage);
+        int ticksSinceHit = data.getTicksTracked() - data.getLastHitTick();
+        if (ticksSinceHit >= 0 && ticksSinceHit < 4) total += 0.03D * (4 - ticksSinceHit);
+        if (data.isInExplosionGraceWindow(2000L)) total += 0.15D;
+        int ticksSinceGlide = data.getTicksTracked() - data.getLastGlideTick();
+        if (ticksSinceGlide >= 0 && ticksSinceGlide < 10) total += 0.06D;
+        int ticksSinceRiptide = data.getTicksTracked() - data.getLastRiptideTick();
+        if (ticksSinceRiptide >= 0 && ticksSinceRiptide < 15) total += 0.08D;
+        if (data.hasAttributeTransition()) total += 0.08D;
+
+        return total;
+    }
 
     /**
      * Creates and populates an UncertaintyHandler with all relevant
@@ -151,20 +243,38 @@ public final class MovementCheckSupport {
     /**
      * Compute the ground friction for the block below the player.
      * Returns blockFriction * 0.91 (the effective friction applied to movement).
+     * Served from a per-tick cache - see PositionTracker.groundFrictionForTick().
      */
     public static double computeGroundFriction(PlayerData data) {
+        return data.getPositionTracker().groundFrictionForTick();
+    }
+
+    /** Raw block friction (0.6 default) - the value vanilla's accel formula takes. */
+    public static double computeGroundFrictionRaw(PlayerData data) {
+        return data.getPositionTracker().groundFrictionRawForTick();
+    }
+
+    /** The actual 3x3 friction sampling; callers go through the per-tick cache. */
+    public static double computeGroundFrictionUncached(PlayerData data) {
+        return computeGroundFrictionRawUncached(data) * 0.91D;
+    }
+
+    /** Raw max block friction over the 3x3 footprint (no air-drag multiply). */
+    public static double computeGroundFrictionRawUncached(PlayerData data) {
         double maxFriction = 0.6F;
         double startX = data.getX() - 0.3D;
         double startZ = data.getZ() - 0.3D;
-        int blockY = floor(data.getY() - 0.2D);
+        // Vanilla samples friction at floor(feetY - 0.500001) — the block the
+        // player is standing ON, even when resting in a shallow block.
+        int blockY = floor(data.getY() - 0.500001D);
 
         for (double sampleX = startX; sampleX <= startX + 0.6D; sampleX += 0.3D) {
-            for (double sampleZ = startZ; sampleZ <= startZ + 0.6D; sampleZ += 0.3D) {
+            for (double sampleZ = startZ; startZ + 0.6D >= sampleZ; sampleZ += 0.3D) {
                 maxFriction = Math.max(maxFriction, sampleGroundFriction(data, sampleX, sampleZ, blockY));
             }
         }
 
-        return maxFriction * 0.91D;
+        return maxFriction;
     }
 
     /**
@@ -229,8 +339,12 @@ public final class MovementCheckSupport {
             maxSpeed += data.getWaterMovementEfficiency() * 0.22D;
         }
 
-        // Sprint-jump boost adds ~0.2 forward velocity
-        if (data.isSprinting() && data.getAirTicks() < 6) {
+        // Sprint-jump boost adds ~0.2 forward velocity, but only while actually
+        // airborne off a jump (ticks 1-5). On the ground (airTicks 0) there is
+        // no takeoff happening, and including it here let hop-spam hold ~7.6bps
+        // forever without tripping the fallback cap.
+        int airTicks = data.getAirTicks();
+        if (data.isSprinting() && airTicks >= 1 && airTicks <= 5) {
             maxSpeed += 0.22D;
         }
 

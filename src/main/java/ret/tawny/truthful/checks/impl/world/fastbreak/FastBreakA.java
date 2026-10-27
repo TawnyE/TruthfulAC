@@ -66,19 +66,43 @@ public final class FastBreakA extends Check {
     }
 
     private int requiredTicks(String name, PlayerData data) {
-        if (name.contains("grass") || name.contains("flower") || name.contains("torch") || name.contains("sapling")) return 0;
+        if (name.contains("grass") || name.contains("flower") || name.contains("torch")
+                || name.contains("sapling") || name.contains("crop") || name.contains("mushroom")) {
+            return 0;
+        }
 
-        int req = 2;
-        if (name.contains("stone") || name.contains("deepslate") || name.contains("ore") || name.contains("brick")) req = 3;
-        if (name.contains("obsidian") || name.contains("ancient_debris")) req = 20;
+        // Conservative per-hardness minimums. The old values were so low
+        // (obsidian 20 ticks vs ~188 bare-handed) and the efficiency/haste
+        // deductions so blunt (flat -3 drove every requirement to zero) that
+        // the check could not fire on a real fast-break. Requirements now
+        // scale multiplicatively and hard blocks keep a real floor.
+        double req = 2.0;
+        if (name.contains("stone") || name.contains("deepslate") || name.contains("ore")
+                || name.contains("brick") || name.contains("cobble")) {
+            req = 3.0;
+        }
+        if (name.contains("ender_chest") || name.contains("anvil") || name.contains("enchanting_table")) {
+            req = 15.0;
+        }
+        if (name.contains("obsidian") || name.contains("ancient_debris")) {
+            req = 30.0;
+        }
 
-        if (data.hasPotionEffect(PotionEffectType.HASTE)) req = Math.max(0, req - 2);
+        int haste = data.getPotionLevel(PotionEffectType.HASTE);
+        if (haste > 0) {
+            req = req / (1.0D + 0.2D * haste);
+        }
 
         int eff = data.getEnchantLevel("efficiency");
-        if (eff >= 5) req = Math.max(0, req - 3);
-        else if (eff >= 3) req = Math.max(0, req - 1);
+        if (eff >= 5) {
+            // Efficiency V insta-mines soft blocks; hard blocks only get a
+            // bounded reduction (eff V netherite obsidian is still 25+ ticks).
+            req = req <= 3.0D ? 0.0D : Math.max(2.0D, req / 3.0D);
+        } else if (eff >= 3) {
+            req = Math.max(1.0D, req / 1.5D);
+        }
 
-        return req;
+        return (int) Math.floor(req);
     }
 
     @EventHandler

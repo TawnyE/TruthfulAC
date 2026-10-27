@@ -2,6 +2,8 @@ package ret.tawny.truthful.checks.impl.world.phase;
 
 import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.player.PlayerQuitEvent;
 import ret.tawny.truthful.Truthful;
 import ret.tawny.truthful.checks.api.Check;
 import ret.tawny.truthful.checks.api.CheckBuffer;
@@ -67,4 +69,9 @@ public final class PhaseA extends Check {
     }
 
     private int floor(double v) { int i = (int) v; return v < i ? i - 1 : i; }
+
+    @EventHandler
+    public void onQuit(final PlayerQuitEvent event) {
+        buffer.remove(event.getPlayer());
+    }
 }

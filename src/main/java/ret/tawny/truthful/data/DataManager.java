@@ -44,6 +44,7 @@ public final class DataManager {
                 org.bukkit.World world = org.bukkit.Bukkit.getWorld(worldUid);
                 if (world != null && world.getPlayers().isEmpty()) {
                     ret.tawny.truthful.Truthful.getInstance().getGlobalWorldCache().clearWorld(worldUid);
+                    ret.tawny.truthful.utils.world.BlockWriteDedup.removeWorld(worldUid);
                 }
             });
         }

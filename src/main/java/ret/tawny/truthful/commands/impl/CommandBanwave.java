@@ -76,23 +76,17 @@ public final class CommandBanwave implements CommandExecutor {
                     sender.sendMessage(config.getBanwaveEmptyMessage());
                     return true;
                 }
-                if (manager.start()) {
-                    sender.sendMessage(config.getBanwaveStartedMessage());
-                } else {
-                    sender.sendMessage(config.getBanwaveStatusMessage()
-                            .replace("%running%", "true")
-                            .replace("%queued%", String.valueOf(manager.getQueuedCount())));
-                }
+                if (manager.start()) sender.sendMessage(config.getBanwaveStartedMessage());
+                else sender.sendMessage(config.getBanwaveStatusMessage()
+                        .replace("%running%", "true")
+                        .replace("%queued%", String.valueOf(manager.getQueuedCount())));
                 return true;
 
             case "stop":
-                if (manager.stop()) {
-                    sender.sendMessage(config.getBanwaveStoppedMessage());
-                } else {
-                    sender.sendMessage(config.getBanwaveStatusMessage()
-                            .replace("%running%", "false")
-                            .replace("%queued%", String.valueOf(manager.getQueuedCount())));
-                }
+                if (manager.stop()) sender.sendMessage(config.getBanwaveStoppedMessage());
+                else sender.sendMessage(config.getBanwaveStatusMessage()
+                        .replace("%running%", "false")
+                        .replace("%queued%", String.valueOf(manager.getQueuedCount())));
                 return true;
 
             case "clear":

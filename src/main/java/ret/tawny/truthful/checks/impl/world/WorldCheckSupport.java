@@ -11,10 +11,12 @@ public final class WorldCheckSupport {
         // FIXED: Removed data.isMovementExempt().
         // Teleport/Join exemptions should not give players a free pass to use
         // Scaffold, FastBreak, or Phase exploits.
-        return data == null
-                || player == null
-                || player.getGameMode() == GameMode.CREATIVE
-                || player.getGameMode() == GameMode.SPECTATOR
+        // Gamemode comes from the server-trusted cache - reading it live here
+        // ran on the packet thread (illegal on Folia, racy on Paper).
+        if (data == null || player == null) return true;
+        final GameMode mode = data.getGameMode();
+        return mode == GameMode.CREATIVE
+                || mode == GameMode.SPECTATOR
                 || data.isServerFrozen()
                 || data.isInsideVehicle()
                 || data.isGliding();

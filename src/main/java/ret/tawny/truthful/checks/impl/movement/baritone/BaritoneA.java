@@ -27,14 +27,12 @@ public final class BaritoneA extends Check {
         if (data == null || data.isRotationExempt() || data.isMovementExempt()) return;
 
         final float dyaw = Math.abs(data.getDeltaYaw());
-        // FIXED: Ignore small movements, Baritone snaps are large and mechanical.
+
         if (dyaw < 5.0F) return;
 
         final float normalized = ((data.getYaw() % 360.0F) + 360.0F) % 360.0F;
         final float rem45 = normalized % 45.0F;
 
-        // FIXED: Narrowed the snap window from 2.25 degrees down to 0.5 degrees.
-        // If a human flicks, they rarely land perfectly on an exact 45.0 degree grid line.
         final boolean snap = rem45 < 0.5F || rem45 > 44.5F;
 
         final SampleData sample = samples.computeIfAbsent(wrapper.getPlayer().getUniqueId(), $ -> new SampleData());
@@ -42,7 +40,6 @@ public final class BaritoneA extends Check {
 
         if (sample.total >= 40) {
             double density = sample.snapDensity();
-            // FIXED: Increased the required density from 75% to 85%.
             if (density > 0.85D && buffer.increase(wrapper.getPlayer(), density > 0.90D ? 1.0D : 0.5D) > 8.0D) {
                 data.lowerBaritoneTrust(5.0D + ((density - 0.85D) * 20.0D));
                 flag(data, String.format("Rotational snap density=%.2f trust=%.1f", density, data.getBaritoneTrust()));

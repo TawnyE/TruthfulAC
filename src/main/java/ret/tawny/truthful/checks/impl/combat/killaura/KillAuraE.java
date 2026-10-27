@@ -3,8 +3,9 @@ package ret.tawny.truthful.checks.impl.combat.killaura;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.player.PlayerQuitEvent;
 import ret.tawny.truthful.Truthful;
 import ret.tawny.truthful.checks.api.Check;
 import ret.tawny.truthful.checks.api.CheckBuffer;
@@ -55,14 +56,20 @@ public final class KillAuraE extends Check {
         }
 
         long ping = data.getPing();
-        int tickDelay = (int) Math.ceil(ping / 50.0);
+        // One-way latency = RTT/2. Using the full RTT rewinds ~2x too far,
+        // which puts legit targets' stale hitboxes behind walls they have
+        // already left and turns those corners into false wall-hits.
+        int tickDelay = (int) Math.ceil(ping / 100.0);
 
         // Extreme jitter introduces too much uncertainty for wall checks.
-        if (tickDelay > 20) {
+        if (tickDelay > 20 || ping > 1000L) {
             return;
         }
 
-        final int currentTick = Bukkit.getCurrentTick();
+        // Compensation clock, not Bukkit's. Bukkit.getCurrentTick() doesn't even
+        // exist before 1.21 (crashed this check on 1.20), and the snapshots are
+        // stamped with the tracker's ticks anyway.
+        final int currentTick = tracker.getCurrentTick();
         SimpleHitbox hitbox = target.getHitboxAt(tickDelay, currentTick);
         if (hitbox == null) {
             return;
@@ -110,13 +117,17 @@ public final class KillAuraE extends Check {
     private static boolean rayIntersectsSolid(double ox, double oy, double oz,
                                               double dx, double dy, double dz,
                                               double maxDistance, PlayerData data) {
-        for (double d = 1.0; d < maxDistance - 0.5; d += 0.4) {
+        // Start at 0.05 and step 0.25: the old 1.0 start / 0.4 step never saw
+        // blocks within ~1 block of the eye or thinner than ~0.4 along the
+        // ray, which is exactly the wall-hit case this check exists for.
+        for (double d = 0.05D; d <= maxDistance; d += 0.25D) {
             final int bx = floor(ox + (dx * d));
             final int by = floor(oy + (dy * d));
             final int bz = floor(oz + (dz * d));
 
-            if (BlockPropertyRegistry.isSolid(data.getWorldCache().getBlockState(bx, by, bz))) {
-                String name = data.getWorldCache().getBlockState(bx, by, bz).getType().getName().toUpperCase();
+            var state = data.getWorldCache().getBlockState(bx, by, bz);
+            if (BlockPropertyRegistry.isSolid(state)) {
+                String name = state.getType().getName().toUpperCase();
                 if (!isPartialBlock(name)) {
                     return true;
                 }
@@ -163,5 +174,10 @@ public final class KillAuraE extends Check {
         double dy = Math.max(Math.max(box.minY - y, 0.0), y - box.maxY);
         double dz = Math.max(Math.max(box.minZ - z, 0.0), z - box.maxZ);
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    @EventHandler
+    public void onQuit(final PlayerQuitEvent event) {
+        buffer.remove(event.getPlayer());
     }
 }

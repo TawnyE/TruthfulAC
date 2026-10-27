@@ -7,17 +7,18 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class DebugLoggingManager {
 
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+
     private final Map<UUID, Boolean> loggingPlayers = new ConcurrentHashMap<>();
     private final File logDir;
-    private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
 
     public DebugLoggingManager() {
         this.logDir = new File(Truthful.getInstance().getPlugin().getDataFolder(), "debug_logs");
@@ -41,21 +42,28 @@ public final class DebugLoggingManager {
         }
     }
 
+    public void stopLogging(UUID uuid) {
+        loggingPlayers.remove(uuid);
+    }
+
+    /**
+     * Called from the packet thread; the actual write is queued onto the async
+     * pool so flags never stall the pipeline on file I/O.
+     */
     public void logFlag(Player player, String checkName, int vl, String debug) {
         if (!isLogging(player)) return;
 
-        File logFile = new File(logDir, player.getName() + ".log");
-        try {
-            if (!logFile.exists()) {
-                logFile.createNewFile();
-            }
+        final File logFile = new File(logDir, player.getName() + ".log");
+        final String line = "[" + LocalDateTime.now().format(DATE_FORMAT) + "] "
+                + checkName + " (VL: " + vl + ") | " + debug;
 
+        Truthful.getInstance().getServerScheduler().runAsync(() -> {
             try (PrintWriter out = new PrintWriter(new FileWriter(logFile, true))) {
-                String timestamp = dateFormat.format(new Date());
-                out.println("[" + timestamp + "] " + checkName + " (VL: " + vl + ") | " + debug);
+                out.println(line);
+            } catch (IOException e) {
+                Truthful.getInstance().getPlugin().getLogger().warning(
+                        "Failed to write debug log for " + player.getName() + ": " + e.getMessage());
             }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        });
     }
 }

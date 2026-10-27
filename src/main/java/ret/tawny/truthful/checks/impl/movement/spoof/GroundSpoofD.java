@@ -1,6 +1,8 @@
 package ret.tawny.truthful.checks.impl.movement.spoof;
 
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.player.PlayerQuitEvent;
 import ret.tawny.truthful.Truthful;
 import ret.tawny.truthful.checks.api.Check;
 import ret.tawny.truthful.checks.api.CheckBuffer;
@@ -38,5 +40,10 @@ public final class GroundSpoofD extends Check {
                 buffer.reset(player, 5.0);
             }
         }
+    }
+
+    @EventHandler
+    public void onQuit(final PlayerQuitEvent event) {
+        buffer.remove(event.getPlayer());
     }
 }

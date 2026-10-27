@@ -7,11 +7,20 @@ import ret.tawny.truthful.checks.api.Check;
 import ret.tawny.truthful.checks.api.CheckBuffer;
 import ret.tawny.truthful.checks.api.data.CheckData;
 import ret.tawny.truthful.checks.api.data.CheckType;
+import ret.tawny.truthful.data.ExemptionType;
 import ret.tawny.truthful.data.PlayerData;
 import ret.tawny.truthful.sync.VelocityQueue;
 import ret.tawny.truthful.utils.world.BlockPropertyRegistry;
 import ret.tawny.truthful.wrapper.impl.client.position.RelMovePacketWrapper;
 
+/**
+ * VelocityA - did they take the knockback they were sent? Compares actual
+ * motion against the acked server velocity plus legal inputs. Notes on what
+ * this deliberately does NOT model: knockback resistance (already baked into
+ * the packet server-side, A=v*(1-r), netherite included), attacker sprint
+ * bonus (attacker-side, already in the packet), shield blocks (blocked hits
+ * send no/reduced velocity, so the early returns below catch them).
+ */
 @CheckData(order = 'A', type = CheckType.VELOCITY)
 public final class VelocityA extends Check {
 
@@ -36,79 +45,93 @@ public final class VelocityA extends Check {
         VelocityQueue queue = data.getVelocities();
         if (queue.isEmpty()) return;
 
+        // Custom-ability launches (spear lunges, mace slams, wind charges) are
+        // plugin-scripted, often multi-tick, and never match a single acked
+        // vanilla knockback. Judging them here is pure false positives.
+        // Gliding, riptide dashes and live explosions make knockback response
+        // unjudgeable (glide physics, scripted dash, multi-stack accumulation
+        // inside one tick). Decay, don't evaluate.
+        // Only judge on the FIRST response tick after acknowledgment (Grim
+        // judges the tick the KB should have been applied, not every tick
+        // while velocity is in the queue). On later ticks the player's own
+        // input has overwhelmed the KB signal and the deviation is just
+        // normal movement, producing the PvP false-flag storm.
+        if (!queue.hasAcknowledgedVelocity(1, false)) {
+            buffer.decrease(data.getPlayer(), 0.25D);
+            return;
+        }
+
         final double actualX = data.getDeltaX();
         final double actualZ = data.getDeltaZ();
         final float yaw = data.getYaw();
         final boolean onGround = data.isServerGround();
 
-        boolean flagged = false;
         double minVectorDev = Double.MAX_VALUE;
-        String flagReason = null;
-
-        for (VelocityQueue.VelocityEntry entry : queue) {
-            if (entry.isAcked() && entry.getAckTick() <= 1 && !entry.isExplosion()) {
-                Vector initialVel = entry.getCurrent();
-                double velXZ = Math.hypot(initialVel.getX(), initialVel.getZ());
-
-                if (velXZ < 0.05D || data.isUnderBlock()) continue;
-
-                double friction = onGround ? computeGroundFriction(data) : 0.91D;
-                double lastX = data.getLastDeltaX() * friction;
-                double lastZ = data.getLastDeltaZ() * friction;
-
-                for (double[] input : INPUT_VECTORS) {
-                    double strafe = input[0];
-                    double forward = input[1];
-
-                    double len = Math.hypot(strafe, forward);
-                    if (len >= 1.0D) {
-                        strafe /= len;
-                        forward /= len;
-                    }
-
-                    double accelFactor = computeAccelFactor(data, onGround, friction);
-
-                    double yawRad = Math.toRadians(yaw);
-                    double sinYaw = Math.sin(yawRad);
-                    double cosYaw = Math.cos(yawRad);
-
-                    double inputX = (strafe * cosYaw - forward * sinYaw) * accelFactor;
-                    double inputZ = (forward * cosYaw + strafe * sinYaw) * accelFactor;
-
-                    double simX = lastX + initialVel.getX() + inputX;
-                    double simZ = lastZ + initialVel.getZ() + inputZ;
-
-                    if (isWallObstructed(data, simX, simZ)) {
-                        if (Math.abs(actualX) < 0.01) simX = actualX;
-                        if (Math.abs(actualZ) < 0.01) simZ = actualZ;
-                    }
-
-                    double vecDev = Math.hypot(actualX - simX, actualZ - simZ);
-                    if (vecDev < minVectorDev) {
-                        minVectorDev = vecDev;
-                    }
-                }
-
-                long ping = data.getPing();
-                double pingGrace = ping > 80 ? Math.min(0.12D, (ping / 50.0) * 0.035D) : 0.0D;
-                double entityGrace = data.isNearEntity() ? 0.08D : 0.0D;
-                double allowedDev = 0.08D + (onGround ? 0.04D : 0.02D) + pingGrace + entityGrace;
-
-                if (minVectorDev > allowedDev) {
-                    flagged = true;
-                    flagReason = String.format("Horizontal Vector Fail vecDev=%.4f allowed=%.4f velXZ=%.3f (rtt=%dms nearEntity=%s)",
-                            minVectorDev, allowedDev, velXZ, ping, data.isNearEntity());
-                }
-            }
+        Vector receivedVelocity = queue.getAcknowledgedVelocityVector(1, false);
+        double velXZ = Math.hypot(receivedVelocity.getX(), receivedVelocity.getZ());
+        if (velXZ < 0.05D) {
+            buffer.decrease(data.getPlayer(), 0.25D);
+            return;
         }
 
-        if (flagged) {
-            flag(data, flagReason, 2.0 + (minVectorDev * 10.0));
-            if (buffer.increase(data.getPlayer(), 1.5) > 5.0D) {
+        double friction = onGround ? computeGroundFriction(data) : 0.91D;
+        double lastX = data.getLastDeltaX() * friction;
+        double lastZ = data.getLastDeltaZ() * friction;
+        double accelFactor = computeAccelFactor(data, onGround, friction);
+        double yawRad = Math.toRadians(yaw);
+        double sinYaw = Math.sin(yawRad);
+        double cosYaw = Math.cos(yawRad);
+
+        for (double[] input : INPUT_VECTORS) {
+            double strafe = input[0];
+            double forward = input[1];
+
+            double len = Math.hypot(strafe, forward);
+            if (len >= 1.0D) {
+                strafe /= len;
+                forward /= len;
+            }
+
+            double inputX = (strafe * cosYaw - forward * sinYaw) * accelFactor;
+            double inputZ = (forward * cosYaw + strafe * sinYaw) * accelFactor;
+
+            double simX = lastX + receivedVelocity.getX() + inputX;
+            double simZ = lastZ + receivedVelocity.getZ() + inputZ;
+
+            if (isWallObstructed(data, simX, simZ)) {
+                if (Math.abs(actualX) < 0.01) simX = actualX;
+                if (Math.abs(actualZ) < 0.01) simZ = actualZ;
+            }
+
+            minVectorDev = Math.min(minVectorDev, Math.hypot(actualX - simX, actualZ - simZ));
+        }
+
+        long ping = data.getPing();
+        double pingGrace = Math.min(0.12D, Math.max(0.0D, (ping - 50L) * 0.00045D));
+        double allowedDev = 0.10D + (onGround ? 0.06D : 0.04D) + pingGrace;
+        // During ACTIVE KB the player's own input fights the knockback:
+        // strafing back toward the attacker adds up to 0.13/tick on top
+        // of the KB decay, so the expected vector routinely differs from
+        // the actual by the full input accel. Widen by input contribution.
+        if (data.getVelocities().hasActiveVelocity()) {
+            allowedDev += data.isSprinting() ? 0.16D : 0.10D;
+        }
+
+        if (minVectorDev > allowedDev) {
+            double excess = minVectorDev - allowedDev;
+            if (buffer.increase(data.getPlayer(), 1.0D + excess * 8.0D) > 5.0D) {
+                double kbRes;
+                try {
+                    kbRes = data.getKnockbackResistance();
+                } catch (Throwable ignored) {
+                    kbRes = 0.0D;
+                }
+                flag(data, String.format("Horizontal Vector Fail vecDev=%.4f allowed=%.4f velXZ=%.3f rtt=%dms kbRes=%.2f",
+                        minVectorDev, allowedDev, velXZ, ping, kbRes), 1.5D + excess * 10.0D);
                 buffer.reset(data.getPlayer(), 2.0D);
             }
         } else {
-            buffer.decrease(data.getPlayer(), 0.2D);
+            buffer.decrease(data.getPlayer(), 0.35D);
         }
     }
 
@@ -127,10 +150,17 @@ public final class VelocityA extends Check {
     }
 
     private double computeGroundFriction(PlayerData data) {
-        int x = (int) Math.floor(data.getX());
-        int y = (int) Math.floor(data.getY() - 0.2D);
-        int z = (int) Math.floor(data.getZ());
-        return BlockPropertyRegistry.getFriction(data.getWorldCache().getBlockState(x, y, z)) * 0.91D;
+        // Shared 3x3 max with SimA. The old single-block sample disagreed with
+        // the movement checks on block edges (ice next to dirt read dirt here,
+        // ice there) and manufactured velocity flags out of nothing.
+        try {
+            return ret.tawny.truthful.checks.impl.movement.MovementCheckSupport.computeGroundFriction(data);
+        } catch (Throwable ignored) {
+            int x = (int) Math.floor(data.getX());
+            int y = (int) Math.floor(data.getY() - 0.2D);
+            int z = (int) Math.floor(data.getZ());
+            return BlockPropertyRegistry.getFriction(data.getWorldCache().getBlockState(x, y, z)) * 0.91D;
+        }
     }
 
     private boolean isWallObstructed(PlayerData data, double simX, double simZ) {

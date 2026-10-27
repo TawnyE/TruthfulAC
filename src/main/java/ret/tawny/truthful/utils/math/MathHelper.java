@@ -51,25 +51,11 @@ public final class MathHelper {
     }
 
     public static double pow(final double base, final double exponent) {
-        double result = 1;
-        if (exponent < 0)
-            return result / pow(base, -exponent);
-
-        for (int i = 0; i < exponent; ++i)
-            result *= base;
-
-        return result;
+        return Math.pow(base, exponent);
     }
 
     public static float pow(final float base, final float exponent) {
-        float result = 1;
-        if (exponent < 0)
-            return result / pow(base, -exponent);
-
-        for (int i = 0; i < exponent; ++i)
-            result *= base;
-
-        return result;
+        return (float) Math.pow(base, exponent);
     }
 
     public static double[] distributeByWeight(final double base, final double... values) {

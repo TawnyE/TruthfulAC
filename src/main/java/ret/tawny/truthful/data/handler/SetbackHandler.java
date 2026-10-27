@@ -27,13 +27,17 @@ public final class SetbackHandler {
         this.lastSafeLocation = player.getLocation();
     }
 
-    public void updateSafeLocation(Location location) {
+    public void updateSafeLocation(double x, double y, double z, float yaw, float pitch) {
         if (awaitingTeleport) return;
         if (data.hasVelocity() || data.isTeleportPending()) return;
         if (!data.isServerGround()) return;
         if (data.getTicksTracked() - data.getLastFlagTick() <= 12) return;
 
-        this.lastSafeLocation = location.clone();
+        // Primitives in, Location built only when the update is actually
+        // accepted - the old call allocated a fresh Location per movement
+        // packet just to throw most of them away. World comes from the
+        // server-trusted cache (this runs on the packet thread).
+        this.lastSafeLocation = new Location(data.getWorld(), x, y, z, yaw, pitch);
         this.consecutiveSetbacks = 0;
     }
 
@@ -84,9 +88,9 @@ public final class SetbackHandler {
         return null;
     }
 
-    public void setback() {
+    public boolean setback() {
         long now = System.currentTimeMillis();
-        if (now - lastSetbackTime < 80L) return;
+        if (now - lastSetbackTime < 80L) return false;
 
         this.awaitingTeleport = true;
         this.lastSetbackTime = now;
@@ -103,15 +107,16 @@ public final class SetbackHandler {
         );
         PacketEvents.getAPI().getPlayerManager().sendPacket(player, tpPacket);
 
-        short uid = data.getNextTransactionId();
-        this.pendingTransactionId = uid;
-        data.recordTransactionSent(uid);
-
-        if (Truthful.USE_MODERN_PING) {
+        // Paired ping confirm for the setback. Skipped when the transaction
+        // ping kill-switch is off; the 150ms movement-block timeout in
+        // shouldBlockMovement() covers the missing ack.
+        if (Truthful.getInstance().getConfiguration().isTransactionPingEnabled()) {
+            short uid = data.getNextTransactionId();
+            this.pendingTransactionId = uid;
+            data.recordTransactionSent(uid);
             PacketEvents.getAPI().getPlayerManager().sendPacket(player, new WrapperPlayServerPing(uid));
-        } else {
-            PacketEvents.getAPI().getPlayerManager().sendPacket(player, new WrapperPlayServerWindowConfirmation(0, uid, false));
         }
+        return true;
     }
 
     public boolean onTransaction(short id) {

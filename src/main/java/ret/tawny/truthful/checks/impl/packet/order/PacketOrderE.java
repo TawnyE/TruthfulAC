@@ -4,6 +4,8 @@ import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.player.PlayerQuitEvent;
 import ret.tawny.truthful.Truthful;
 import ret.tawny.truthful.checks.api.Check;
 import ret.tawny.truthful.checks.api.CheckBuffer;
@@ -41,8 +43,14 @@ public final class PacketOrderE extends Check {
                     buffer.reset(player, 2.0);
                 }
             }
+            data.setInventoryOpen(false);
         } else {
             buffer.decrease(player, 0.5);
         }
+    }
+
+    @EventHandler
+    public void onQuit(final PlayerQuitEvent event) {
+        buffer.remove(event.getPlayer());
     }
 }

@@ -16,27 +16,19 @@ public final class CheckBuffer {
     /**
      * Increases the buffer and returns the NEW TOTAL value.
      * Checks use this like: if (buffer.increase(p, 1.0) > 5.0) flag();
+     * Atomic merge — a read-modify-write race on concurrent packet threads
+     * used to silently drop increments.
      */
     public double increase(Player player, double amount) {
-        double current = bufferMap.getOrDefault(player.getUniqueId(), 0.0);
-        current += amount;
-
-        // Cap at 100 to prevent overflow/memory weirdness
-        if (current > 100.0)
-            current = 100.0;
-
-        bufferMap.put(player.getUniqueId(), current);
-        return current;
+        return bufferMap.merge(player.getUniqueId(), amount,
+                (old, add) -> Math.min(100.0, old + add));
     }
 
     public void decrease(Player player, double amount) {
-        double current = bufferMap.getOrDefault(player.getUniqueId(), 0.0);
-        if (current > 0) {
-            current -= amount;
-            if (current < 0)
-                current = 0;
-            bufferMap.put(player.getUniqueId(), current);
-        }
+        bufferMap.compute(player.getUniqueId(), (k, v) -> {
+            if (v == null || v <= amount) return null; // don't store zeros
+            return v - amount;
+        });
     }
 
     public void reset(Player player, double value) {

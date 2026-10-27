@@ -44,7 +44,7 @@ public final class LagB extends Check {
         Player player = (Player) event.getPlayer();
         PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
         if (data == null || data.isExempt()
-                || player.getGameMode() == GameMode.CREATIVE
+                || data.getGameMode() == GameMode.CREATIVE
                 || Truthful.getInstance().isBedrockPlayer(player)) return;
 
         int entityId = wrapper.getEntityId();
@@ -55,7 +55,8 @@ public final class LagB extends Check {
         if (comp == null) return;
 
         long ping = data.getPing();
-        int tickDelay = (int) Math.min(CompensationTracker.MAX_BACKTRACK_TICKS, Math.max(0, Math.ceil(ping / 50.0)));
+        // One-way latency (RTT/2), not full RTT: full RTT rewinds 2x too far.
+        int tickDelay = (int) Math.min(CompensationTracker.MAX_BACKTRACK_TICKS, Math.max(0, Math.ceil(ping / 100.0)));
         int currentTick = tracker.getCurrentTick();
 
         // FIXED: Check against backtracked hitbox window to avoid false flagging during knockback interpolation

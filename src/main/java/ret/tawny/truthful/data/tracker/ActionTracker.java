@@ -26,6 +26,18 @@ public class ActionTracker {
     private int currentSlot;
     private int lastSlot;
 
+    // Vehicle steering (STEER_VEHICLE packet), consumed by the vehicle motion engine.
+    private float vehicleForward;
+    private float vehicleSideways;
+    private int vehicleSteerTick = -100;
+
+    // Known client input (1.21.2+ PLAYER_INPUT packet): the exact WASD/jump/
+    // shift/sprint state the client used this tick. When fresh, the engine's
+    // input brute-force collapses to a single exact candidate.
+    private boolean inputForward, inputBackward, inputLeft, inputRight, inputJump, inputShift, inputSprint;
+    private int lastInputPacketTick = -100;
+    private int lastClientTickEndTick = -100;
+
     public void reset() {
         this.sprinting = false;
         this.sneaking = false;
@@ -37,6 +49,11 @@ public class ActionTracker {
         this.usingItemTicks = 0;
         this.inventoryOpen = false;
         this.inventoryOpenTick = 0;
+        this.lastInventoryClose = -1000;
+        this.lastUseItemTick = -1000;
+        this.vehicleSteerTick = -1000;
+        this.lastInputPacketTick = -1000;
+        this.lastClientTickEndTick = -1000;
         this.lastWindowClick = 0;
         this.clickDelays.clear();
         this.clickedSlots.clear();
@@ -100,6 +117,48 @@ public class ActionTracker {
     public void setCurrentSlot(int s) { this.currentSlot = s; }
     public int getLastSlot() { return lastSlot; }
     public void setLastSlot(int s) { this.lastSlot = s; }
+
+    public void setVehicleSteer(float forward, float sideways, int tick) {
+        this.vehicleForward = forward;
+        this.vehicleSideways = sideways;
+        this.vehicleSteerTick = tick;
+    }
+    public float getVehicleForward() { return vehicleForward; }
+    public float getVehicleSideways() { return vehicleSideways; }
+    public int getVehicleSteerTick() { return vehicleSteerTick; }
+
+    public void setClientInput(boolean forward, boolean backward, boolean left, boolean right,
+                               boolean jump, boolean shift, boolean sprint, int tick) {
+        this.inputForward = forward;
+        this.inputBackward = backward;
+        this.inputLeft = left;
+        this.inputRight = right;
+        this.inputJump = jump;
+        this.inputShift = shift;
+        this.inputSprint = sprint;
+        this.lastInputPacketTick = tick;
+    }
+
+    public void markClientTickEnd(int tick) {
+        this.lastClientTickEndTick = tick;
+    }
+
+    /** True when the stored input state is fresh enough to trust as exact. */
+    public boolean isInputKnown(int currentTick) {
+        // 1 tick, not 3: the jump bit lags, and trusting a 3-tick-old "no
+        // jump" suppressed the jump candidate on the takeoff tick and sent
+        // the carried velocity diverging.
+        int diffInput = currentTick - lastInputPacketTick;
+        int diffEnd = currentTick - lastClientTickEndTick;
+        return (diffInput >= 0 && diffInput <= 1) || (diffEnd >= 0 && diffEnd <= 1);
+    }
+    public boolean isInputForward() { return inputForward; }
+    public boolean isInputBackward() { return inputBackward; }
+    public boolean isInputLeft() { return inputLeft; }
+    public boolean isInputRight() { return inputRight; }
+    public boolean isInputJump() { return inputJump; }
+    public boolean isInputShift() { return inputShift; }
+    public boolean isInputSprint() { return inputSprint; }
 
     public void handleTick() {
         if (this.usingItem) {

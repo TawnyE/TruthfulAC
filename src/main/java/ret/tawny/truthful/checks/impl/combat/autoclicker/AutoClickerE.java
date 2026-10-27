@@ -37,7 +37,7 @@ public final class AutoClickerE extends Check {
             if (!Truthful.getInstance().getConfiguration().shouldCountGroundPunches()
                     && data.getTicksTracked() - data.getLastAttackPacketTick() > 2) return;
 
-            long now = System.currentTimeMillis();
+            long now = System.nanoTime() / 1_000_000L; // monotonic; GCD stats die under a 15.6ms wall clock
             AutoClickerData acData = dataMap.computeIfAbsent(player.getUniqueId(), k -> new AutoClickerData());
 
             if (acData.lastClick != 0) {

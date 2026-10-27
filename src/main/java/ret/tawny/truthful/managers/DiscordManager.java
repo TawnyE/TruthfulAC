@@ -54,7 +54,9 @@ public class DiscordManager {
 
                 DiscordWebhook.EmbedObject embed = new DiscordWebhook.EmbedObject();
                 embed.setTitle(String.format("%s detected!", data.getPlayer().getName()));
-                embed.setDescription("**Check:** " + check.getFormattedName() + "\n**Info:** `" + debug + "`");
+                // Discord doesn't render '&' color codes, strip them from tags.
+                String discordCheckName = check.getTaggedName(config).replaceAll("&[0-9a-fA-Fk-oK-OrR]", "");
+                embed.setDescription("**Check:** " + discordCheckName + "\n**Info:** `" + debug + "`");
                 embed.setColor(color);
                 embed.setFooter(footer);
 

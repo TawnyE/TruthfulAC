@@ -2,14 +2,10 @@ package ret.tawny.truthful.checks.impl.combat.crystal;
 
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.util.Vector3i;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerBlockPlacement;
-import org.bukkit.Bukkit;
-import org.bukkit.Material;
-import org.bukkit.entity.Entity;
-import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
+import org.bukkit.block.BlockFace;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.player.PlayerQuitEvent;
 import ret.tawny.truthful.Truthful;
@@ -17,108 +13,118 @@ import ret.tawny.truthful.checks.api.Check;
 import ret.tawny.truthful.checks.api.CheckBuffer;
 import ret.tawny.truthful.checks.api.data.CheckData;
 import ret.tawny.truthful.checks.api.data.CheckType;
+import ret.tawny.truthful.compensation.CompensationTracker;
 import ret.tawny.truthful.data.PlayerData;
+import ret.tawny.truthful.wrapper.impl.client.action.PlayerBlockPlacePacketWrapper;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-
+/**
+ * CrystalAuraA - place->break detection with positional correlation.
+ *
+ * The naive version of this check flags ANY attack within 40ms of ANY crystal
+ * placement. Real crystal PvP is literally "place N+1, break N", so that
+ * version flags exactly the playstyle it claims to detect. Here, a fast
+ * place->break only counts when the attacked entity position matches the
+ * crystal spawned by that placement. Breaking someone else's crystal fast is
+ * neither tracked nor flagged.
+ */
 @CheckData(order = 'A', type = CheckType.CRYSTAL)
 public final class CrystalAuraA extends Check {
 
+    private static final long PLACEMENT_TTL_MS = 1000L;
+    private static final double POSITION_MATCH_RADIUS_SQ = 2.25D; // 1.5 blocks
+    private static final int MAX_TRACKED_PLACEMENTS = 16;
+
     private final CheckBuffer buffer = new CheckBuffer(10.0);
-    private final Map<UUID, Long> lastPlaceTime = new ConcurrentHashMap<>();
+    private final Map<UUID, Deque<CrystalPlacement>> placements = new ConcurrentHashMap<>();
 
-    // Store when crystals were spawned to detect ID Predict
-    private final Map<Integer, Long> crystalSpawnTimes = new ConcurrentHashMap<>();
-
-    // We need to clean up the spawn map periodically
-    private long lastCleanup = System.currentTimeMillis();
+    private record CrystalPlacement(double x, double y, double z, long timeMs) {}
 
     @Override
     public void handlePacketPlayerReceive(final PacketReceiveEvent event) {
         final Player player = (Player) event.getPlayer();
         final PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
-        if (data == null)
-            return;
+        if (data == null) return;
 
-        // Cleanup cache every minute
-        if (System.currentTimeMillis() - lastCleanup > 60000) {
-            crystalSpawnTimes.clear();
-            lastCleanup = System.currentTimeMillis();
-        }
-
-        // 1. Track Crystal Placement
+        // 1. Track Crystal Placement (cached hand state + packet positions only;
+        //    no live Bukkit inventory reads on the netty thread).
         if (event.getPacketType() == PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT) {
-            WrapperPlayClientPlayerBlockPlacement placement = new WrapperPlayClientPlayerBlockPlacement(event);
-            ItemStack stack = player.getInventory().getItemInMainHand();
-            if (stack == null || stack.getType() != Material.END_CRYSTAL) {
-                stack = player.getInventory().getItemInOffHand();
-            }
+            if (!data.isHoldingCrystal()) return;
 
-            if (stack != null && stack.getType() == Material.END_CRYSTAL) {
-                lastPlaceTime.put(player.getUniqueId(), System.currentTimeMillis());
-            }
+            PlayerBlockPlacePacketWrapper place = data.getCurrentBlockPlacement();
+            if (place == null || place.getBlockPosition() == null) return;
+
+            Vector3i clicked = place.getBlockPosition();
+            BlockFace face = place.getBlockFace();
+            if (face == null) face = BlockFace.UP;
+
+            // The crystal entity spawns centered on the face the player clicked.
+            double cx = clicked.getX() + face.getModX() + 0.5D;
+            double cy = clicked.getY() + face.getModY();
+            double cz = clicked.getZ() + face.getModZ() + 0.5D;
+
+            Deque<CrystalPlacement> deque = placements.computeIfAbsent(
+                    player.getUniqueId(), k -> new ArrayDeque<>());
+            deque.addLast(new CrystalPlacement(cx, cy, cz, System.currentTimeMillis()));
+            while (deque.size() > MAX_TRACKED_PLACEMENTS) deque.pollFirst();
+
+            long cutoff = System.currentTimeMillis() - PLACEMENT_TTL_MS;
+            while (!deque.isEmpty() && deque.peekFirst().timeMs < cutoff) deque.pollFirst();
         }
 
-        // 2. Track Attack on Crystal
+        // 2. Attack on a crystal: only "our own freshly placed crystal" counts.
         else if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY) {
             WrapperPlayClientInteractEntity interact = new WrapperPlayClientInteractEntity(event);
+            if (interact.getAction() != WrapperPlayClientInteractEntity.InteractAction.ATTACK) return;
 
-            if (interact.getAction() == WrapperPlayClientInteractEntity.InteractAction.ATTACK) {
-                long now = System.currentTimeMillis();
+            Deque<CrystalPlacement> deque = placements.get(player.getUniqueId());
+            if (deque == null || deque.isEmpty()) return;
 
-                // Logic 1: Place -> Break Speed (Self-Placement)
-                long lastPlace = lastPlaceTime.getOrDefault(player.getUniqueId(), 0L);
-                long diff = now - lastPlace;
+            CompensationTracker tracker = Truthful.getInstance().getCompensationTracker();
+            if (tracker == null) return;
+            CompensationTracker.CompensatedEntity target = tracker.getEntityData(interact.getEntityId());
+            if (target == null) return;
+            CompensationTracker.EntitySnapshot snap = target.getLatest();
+            if (snap == null) return;
 
-                if (diff < 100) {
-                    // 50ms = 1 tick. If Place -> Break is < 50ms, it's instant.
-                    // ID Predict often does this in 0-10ms.
-                    if (diff < 40) {
-                        if (buffer.increase(player, 2.0) > 6.0) {
-                            flag(data, String.format("Fast Crystal (Place->Break). Delay: %dms", diff));
-                            buffer.reset(player, 3.0);
-                        }
-                    } else {
-                        buffer.decrease(player, 0.25);
+            long now = System.currentTimeMillis();
+            Long matchedPlaceTime = null;
+
+            for (CrystalPlacement p : deque) {
+                double dx = snap.x - p.x;
+                double dy = snap.y - p.y;
+                double dz = snap.z - p.z;
+                if (dx * dx + dz * dz <= POSITION_MATCH_RADIUS_SQ && dy >= -1.0 && dy <= 2.0) {
+                    matchedPlaceTime = p.timeMs;
+                    break;
+                }
+            }
+
+            if (matchedPlaceTime == null) {
+                // Attacking a crystal that isn't ours — normal play.
+                buffer.decrease(player, 0.1);
+                return;
+            }
+
+            long diff = now - matchedPlaceTime;
+            if (diff < 100) {
+                // < 50ms = same-tick place+detonate. < 40ms is consistent bot cadence
+                // for the crystal this very client just placed.
+                if (diff < 40) {
+                    if (buffer.increase(player, 2.0) > 6.0) {
+                        flag(data, String.format("Fast Crystal (self place->break) delay=%dms", diff));
+                        buffer.reset(player, 3.0);
                     }
                 } else {
-                    buffer.decrease(player, 0.1);
+                    buffer.decrease(player, 0.25);
                 }
-
-
-                Truthful.getInstance().getServerScheduler().runRegion(player, () -> {
-                    if (!player.isOnline())
-                        return;
-
-                    Entity target = null;
-                    int targetId = interact.getEntityId();
-
-
-                    for (Entity e : player.getNearbyEntities(10, 10, 10)) {
-                        if (e.getEntityId() == targetId) {
-                            target = e;
-                            break;
-                        }
-                    }
-
-                    if (target == null) {
-                        // If entity is null but client sent attack, they might be predicting an ID that
-                        // doesn't exist yet!
-                        // However, it could also be desync (already dead).
-                        return;
-                    }
-
-                    if (target.getType() == EntityType.END_CRYSTAL) {
-                        if (target.getTicksLived() <= 0) {
-                            if (buffer.increase(player, 1.5) > 5.0) {
-                                flag(data, "Crystal ID Predict (0-Tick Attack)");
-                            }
-                        }
-                    }
-                });
+            } else {
+                buffer.decrease(player, 0.1);
             }
         }
     }
@@ -126,6 +132,6 @@ public final class CrystalAuraA extends Check {
     @EventHandler
     public void onQuit(final PlayerQuitEvent event) {
         buffer.remove(event.getPlayer());
-        lastPlaceTime.remove(event.getPlayer().getUniqueId());
+        placements.remove(event.getPlayer().getUniqueId());
     }
 }

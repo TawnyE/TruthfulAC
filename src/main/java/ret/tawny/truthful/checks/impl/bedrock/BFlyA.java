@@ -2,6 +2,8 @@ package ret.tawny.truthful.checks.impl.bedrock;
 
 import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.potion.PotionEffectType;
 import ret.tawny.truthful.Truthful;
 import ret.tawny.truthful.checks.api.Check;
@@ -35,7 +37,7 @@ public final class BFlyA extends Check {
         if (data == null) return;
 
         // --- EXEMPTIONS ---
-        if (player.getGameMode() == GameMode.CREATIVE || data.isAllowFlight() ||
+        if (data.getGameMode() == GameMode.CREATIVE || data.isAllowFlight() ||
                 data.isFlying() || data.isGliding() || data.isInsideVehicle()) {
             return;
         }
@@ -100,5 +102,10 @@ public final class BFlyA extends Check {
             // On ground
             buffer.decrease(player, 0.5);
         }
+    }
+
+    @EventHandler
+    public void onQuit(final PlayerQuitEvent event) {
+        buffer.remove(event.getPlayer());
     }
 }

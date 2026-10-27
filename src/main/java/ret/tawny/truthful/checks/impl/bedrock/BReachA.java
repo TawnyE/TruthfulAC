@@ -3,9 +3,10 @@ package ret.tawny.truthful.checks.impl.bedrock;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
-import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.util.Vector;
 import ret.tawny.truthful.Truthful;
 import ret.tawny.truthful.checks.api.Check;
@@ -24,6 +25,9 @@ public final class BReachA extends Check {
     private final CheckBuffer buffer = new CheckBuffer(10.0);
 
     @Override
+    public boolean rejectsPackets() { return true; }
+
+    @Override
     public void handlePacketPlayerReceive(final PacketReceiveEvent event) {
         if (event.getPacketType() != PacketType.Play.Client.INTERACT_ENTITY) return;
 
@@ -38,7 +42,7 @@ public final class BReachA extends Check {
         }
 
         final PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
-        if (data == null || player.getGameMode() == GameMode.CREATIVE) return;
+        if (data == null || data.getGameMode() == GameMode.CREATIVE) return;
 
         // --- ASYNC EXECUTION ---
         CompensationTracker tracker = Truthful.getInstance().getCompensationTracker();
@@ -58,7 +62,9 @@ public final class BReachA extends Check {
 
         // Bedrock packets can be very jittery, check a wider window of history
         int[] ticks = { tickDelay, tickDelay - 1, tickDelay + 1, tickDelay - 2, tickDelay + 2 };
-        final int currentTick = Bukkit.getCurrentTick();
+        // Same Bukkit.getCurrentTick crash as KillAuraE had (missing before
+        // 1.21). The tracker's own clock is what the snapshots use anyway.
+        final int currentTick = tracker.getCurrentTick();
 
         // Calculate Eye Position from PlayerData
         double eyeHeight = data.getEyeHeight(false, data.isSneaking(), data.isSwimming());
@@ -109,8 +115,10 @@ public final class BReachA extends Check {
             if (buffer.increase(player, 1.0 + over) > 15.0) {
                 flag(data, String.format("Bedrock Reach. Dist: %.2f, Max: %.2f", minDistance, maxReach));
 
-                // Cancel the hit (lagback is annoying for reach, cancelling is better)
-                event.setCancelled(true);
+                // Cancel the hit (lagback is annoying for reach, cancelling is better).
+                // Honors the per-check "cancel" switch - observe mode lets the
+                // hit through but still flags.
+                if (mayCancelPackets()) event.setCancelled(true);
                 buffer.reset(player, 4.0);
             }
         } else {
@@ -127,5 +135,10 @@ public final class BReachA extends Check {
         double dy = Math.max(Math.max(box.minY - origin.getY(), 0), origin.getY() - box.maxY);
         double dz = Math.max(Math.max(box.minZ - origin.getZ(), 0), origin.getZ() - box.maxZ);
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    @EventHandler
+    public void onQuit(final PlayerQuitEvent event) {
+        buffer.remove(event.getPlayer());
     }
 }

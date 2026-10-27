@@ -33,6 +33,10 @@ public final class DebugManager {
         debuggingChecks.remove(player.getUniqueId());
     }
 
+    public void stopDebuggingCheck(UUID uuid) {
+        debuggingChecks.remove(uuid);
+    }
+
     /**
      * Broadcasts live real-time check status with 3-tier status indicator ([CLEAR], [NEAR_FLAG], [FLAGGED]).
      */
@@ -57,7 +61,9 @@ public final class DebugManager {
                 if (focus != null && (focus.equalsIgnoreCase("ALL") || focus.equalsIgnoreCase("ANY") || focus.toLowerCase().contains(checkName.toLowerCase()))) {
                     PacketEvents.getAPI().getPlayerManager().sendPacket(debugger, packet);
                     if (status == DebugStatus.NEAR_FLAG || status == DebugStatus.FLAGGED) {
-                        debugger.sendMessage(chatText);
+                        // Chat from packet threads is not thread-safe on Spigot/Folia.
+                        ret.tawny.truthful.Truthful.getInstance().getServerScheduler()
+                                .runRegion(debugger, () -> debugger.sendMessage(chatText));
                     }
                 }
             }
@@ -87,7 +93,8 @@ public final class DebugManager {
             if (debugger != null) {
                 String focus = debuggingChecks.get(uuid);
                 if (focus != null && (focus.equalsIgnoreCase("ALL") || focus.equalsIgnoreCase("ANY") || focus.toLowerCase().contains(checkName.toLowerCase()))) {
-                    debugger.sendMessage(message);
+                    ret.tawny.truthful.Truthful.getInstance().getServerScheduler()
+                            .runRegion(debugger, () -> debugger.sendMessage(message));
                 }
             }
         }

@@ -21,18 +21,28 @@ public final class AttributeEngine {
         final double movementEfficiency;
         final double waterMovementEfficiency;
         final double sneakingSpeed;
+        final double scale;
         final int speedLevel;
         final int slownessLevel;
         final int jumpBoostLevel;
         final long timestamp;
 
         AttributeSnapshot(double walkSpeed, int speedLevel, int slownessLevel, int jumpBoostLevel) {
-            this(walkSpeed, 0.08D, 0.42D, 0.6D, 0.0D, 0.0D, 0.3D,
+            this(walkSpeed, 0.08D, 0.42D, 0.6D, 0.0D, 0.0D, 0.3D, 1.0D,
                     speedLevel, slownessLevel, jumpBoostLevel);
         }
 
         AttributeSnapshot(double walkSpeed, double gravity, double jumpStrength, double stepHeight,
                           double movementEfficiency, double waterMovementEfficiency, double sneakingSpeed,
+                          int speedLevel, int slownessLevel, int jumpBoostLevel) {
+            this(walkSpeed, gravity, jumpStrength, stepHeight, movementEfficiency,
+                    waterMovementEfficiency, sneakingSpeed, 1.0D,
+                    speedLevel, slownessLevel, jumpBoostLevel);
+        }
+
+        AttributeSnapshot(double walkSpeed, double gravity, double jumpStrength, double stepHeight,
+                          double movementEfficiency, double waterMovementEfficiency, double sneakingSpeed,
+                          double scale,
                           int speedLevel, int slownessLevel, int jumpBoostLevel) {
             this.walkSpeed = walkSpeed;
             this.gravity = gravity;
@@ -41,6 +51,7 @@ public final class AttributeEngine {
             this.movementEfficiency = movementEfficiency;
             this.waterMovementEfficiency = waterMovementEfficiency;
             this.sneakingSpeed = sneakingSpeed;
+            this.scale = Math.max(0.0625D, Math.min(16.0D, scale));
             this.speedLevel = speedLevel;
             this.slownessLevel = slownessLevel;
             this.jumpBoostLevel = jumpBoostLevel;
@@ -66,6 +77,17 @@ public final class AttributeEngine {
                        final int speedLevel, final int slownessLevel, final int jumpBoostLevel) {
         history.addLast(new AttributeSnapshot(walkSpeed, gravity, jumpStrength, stepHeight,
                 movementEfficiency, waterMovementEfficiency, sneakingSpeed,
+                speedLevel, slownessLevel, jumpBoostLevel));
+        cleanUp();
+    }
+
+    public void record(final double walkSpeed, final double gravity, final double jumpStrength,
+                       final double stepHeight, final double movementEfficiency,
+                       final double waterMovementEfficiency, final double sneakingSpeed,
+                       final double scale,
+                       final int speedLevel, final int slownessLevel, final int jumpBoostLevel) {
+        history.addLast(new AttributeSnapshot(walkSpeed, gravity, jumpStrength, stepHeight,
+                movementEfficiency, waterMovementEfficiency, sneakingSpeed, scale,
                 speedLevel, slownessLevel, jumpBoostLevel));
         cleanUp();
     }
@@ -157,6 +179,30 @@ public final class AttributeEngine {
     }
 
     /**
+     * Latest scale in the window. Used for eye/height math where the current
+     * hitbox matters (jumping under blocks while scaled).
+     */
+    public double getLatestScale() {
+        cleanUp();
+        AttributeSnapshot last = history.peekLast();
+        if (last != null) return last.scale;
+        return data.getScaleCacheRaw();
+    }
+
+    /**
+     * Max scale in the window. Used for leniency (assume the bigger hitbox
+     * when checking ceilings / walls so partial clips count as head-hits).
+     */
+    public double getMaxScale() {
+        cleanUp();
+        double max = 1.0D;
+        for (final AttributeSnapshot snap : history) {
+            max = Math.max(max, snap.scale);
+        }
+        return max;
+    }
+
+    /**
      * Gets the maximum speed potion level recorded in the history window.
      */
     public int getMaxSpeedLevel() {
@@ -207,6 +253,7 @@ public final class AttributeEngine {
         double minWalk = Double.MAX_VALUE, maxWalk = 0.0D;
         double minGravity = Double.MAX_VALUE, maxGravity = 0.0D;
         double minJump = Double.MAX_VALUE, maxJump = 0.0D;
+        double minScale = Double.MAX_VALUE, maxScale = 0.0D;
         int minSpeed = Integer.MAX_VALUE, maxSpeed = 0;
         int minSlow = Integer.MAX_VALUE, maxSlow = 0;
         int minJumpBoost = Integer.MAX_VALUE, maxJumpBoost = 0;
@@ -218,6 +265,8 @@ public final class AttributeEngine {
             maxGravity = Math.max(maxGravity, snap.gravity);
             minJump = Math.min(minJump, snap.jumpStrength);
             maxJump = Math.max(maxJump, snap.jumpStrength);
+            minScale = Math.min(minScale, snap.scale);
+            maxScale = Math.max(maxScale, snap.scale);
             minSpeed = Math.min(minSpeed, snap.speedLevel);
             maxSpeed = Math.max(maxSpeed, snap.speedLevel);
             minSlow = Math.min(minSlow, snap.slownessLevel);
@@ -229,6 +278,7 @@ public final class AttributeEngine {
         return maxWalk - minWalk > 0.005D
                 || maxGravity - minGravity > 0.002D
                 || maxJump - minJump > 0.01D
+                || maxScale - minScale > 0.01D
                 || maxSpeed != minSpeed
                 || maxSlow != minSlow
                 || maxJumpBoost != minJumpBoost;
@@ -246,6 +296,7 @@ public final class AttributeEngine {
         if (getMaxMovementEfficiency() > EPSILON) append(builder, "ATTR_TERRAIN");
         if (getMaxWaterMovementEfficiency() > EPSILON) append(builder, "ATTR_WATER");
         if (getMaxSneakingSpeed() > 0.300D + EPSILON) append(builder, "ATTR_SNEAK");
+        if (Math.abs(getLatestScale() - 1.0D) > 0.01D) append(builder, "ATTR_SCALE");
         return builder.length() == 0 ? "ATTR_VANILLA" : builder.toString();
     }
 

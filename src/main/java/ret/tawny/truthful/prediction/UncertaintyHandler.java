@@ -21,18 +21,14 @@ public final class UncertaintyHandler {
         }
     }
 
+    /**
+     * Idempotent by contract: clears any previously recorded sources before
+     * evaluating, so reuse on the same handler can never double-count.
+     */
     public void evaluate(PlayerData data) {
+        sources.clear();
         if (data.getDeltaXZ() < 0.035) {
             add(0.03, "min_movement");
-        }
-
-        if (data.isNearEntity()) {
-            add(0.25, "entity_collision");
-            add(0.15, "entity_push_variance");
-        }
-
-        if (data.isNearVehicle()) {
-            add(0.08, "vehicle_collision");
         }
 
         if (data.isInWeb()) {
@@ -112,7 +108,7 @@ public final class UncertaintyHandler {
         }
 
         if (data.getDeltaXZ() < 0.2) {
-            add(0.06, "min_movement");
+            add(0.03, "min_movement");
         }
 
         if (Math.abs(data.getDeltaYaw()) > 5.0F || Math.abs(data.getDeltaX() - data.getLastDeltaX()) > 0.05) {

@@ -35,7 +35,7 @@ public final class AutoClickerC extends Check {
             if (!Truthful.getInstance().getConfiguration().shouldCountGroundPunches()
                     && data.getTicksTracked() - data.getLastAttackPacketTick() > 2) return;
 
-            long now = System.currentTimeMillis();
+            long now = System.nanoTime() / 1_000_000L; // monotonic clock for CPS windows
             Deque<Long> clicks = clickTimestamps.computeIfAbsent(player.getUniqueId(), k -> new ArrayDeque<>());
 
             clicks.addLast(now);

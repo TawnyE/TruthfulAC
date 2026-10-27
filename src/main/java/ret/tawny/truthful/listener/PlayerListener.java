@@ -7,6 +7,7 @@ import com.github.retrooper.packetevents.protocol.player.DiggingAction;
 import com.github.retrooper.packetevents.wrapper.play.client.*;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPlayerPositionAndLook;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
@@ -23,6 +24,8 @@ import org.bukkit.event.player.*;
 import org.bukkit.event.vehicle.VehicleEnterEvent;
 import org.bukkit.event.vehicle.VehicleExitEvent;
 import org.bukkit.inventory.ItemStack;
+
+import java.util.UUID;
 import ret.tawny.truthful.Truthful;
 import ret.tawny.truthful.data.DataManager;
 import ret.tawny.truthful.data.ExemptionType;
@@ -101,15 +104,55 @@ public final class PlayerListener implements Listener {
         if (data != null) {
             data.setLastRiptideTick(data.getTicksTracked());
             data.setUsingRiptide(true);
-            data.setExemption(ExemptionType.RIPTIDE, 60);
-            data.setVelocityExemption(60);
+            // Model the launch exactly (look * 3*((1+level)/4)) instead of
+            // blanket-exempting the spin window; keep a short ordering window.
+            int level = riptideLevel(event.getPlayer());
+            if (level > 0) {
+                data.armRiptideImpulse(3.0D * ((1.0D + level) / 4.0D));
+            }
+            data.setExemption(ExemptionType.RIPTIDE, 20);
+            data.setVelocityExemption(20);
         }
+    }
+
+    private static int riptideLevel(Player player) {
+        ItemStack[] hands = {player.getInventory().getItemInMainHand(), player.getInventory().getItemInOffHand()};
+        for (ItemStack it : hands) {
+            if (it != null && it.getType() == Material.TRIDENT) {
+                int lvl = it.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.RIPTIDE);
+                if (lvl > 0) return lvl;
+            }
+        }
+        return 0;
     }
 
     @EventHandler
     public void onQuit(final PlayerQuitEvent event) {
         this.dataManager.eliminate(event.getPlayer());
         TruthfulPacketListener.pendingBrands.remove(event.getPlayer().getUniqueId());
+        // Listener-owned static bookkeeping (chunk-build rate limit stamps,
+        // packet-error throttle) is per-session, not per-UUID-forever.
+        TruthfulPacketListener.onPlayerQuit(event.getPlayer().getUniqueId());
+
+        // Debug/logging subscriptions follow the session, not the UUID. Leaving
+        // these in place across quits was a slow leak + hot-path Bukkit lookups
+        // for ghosts that will never log back in.
+        UUID uuid = event.getPlayer().getUniqueId();
+        ret.tawny.truthful.commands.impl.CommandManager.debuggers.remove(uuid);
+        ret.tawny.truthful.debug.DebugManager dm = Truthful.getInstance().getDebugManager();
+        if (dm != null) dm.stopDebuggingCheck(uuid);
+        ret.tawny.truthful.debug.logging.DebugLoggingManager dlm = Truthful.getInstance().getDebugLoggingManager();
+        if (dlm != null) dlm.stopLogging(uuid);
+        ret.tawny.truthful.debug.telemetry.TelemetryManager tm = Truthful.getInstance().getTelemetryManager();
+        if (tm != null && tm.getFlagRecorder() != null) tm.getFlagRecorder().onQuit(uuid);
+        // A recorded player who disconnects must not leave an ActiveRecording
+        // (and its growing frame list) retained forever - flush and drop it.
+        if (tm != null) {
+            try {
+                tm.stopTelemetryRecording(event.getPlayer());
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -168,7 +211,14 @@ public final class PlayerListener implements Listener {
     public void onVehicleEnter(VehicleEnterEvent event) {
         if (event.getEntered() instanceof Player player) {
             PlayerData data = this.dataManager.getPlayerData(player);
-            if (data != null) data.setNearVehicle(true);
+            if (data != null) {
+                data.setNearVehicle(true);
+                // Server-trusted vehicle stamps. The state cache refresh is
+                // delayed one tick so the server-side passenger list has
+                // settled; the tick stamp closes the gap meanwhile.
+                data.setLastVehicleTick(data.getTicksTracked());
+                Truthful.getInstance().getServerScheduler().runRegionLater(player, data::updateStateCache, 1L);
+            }
         }
     }
 
@@ -178,8 +228,10 @@ public final class PlayerListener implements Listener {
             PlayerData data = this.dataManager.getPlayerData(player);
             if (data != null) {
                 data.setLastVehicleExitTick(data.getTicksTracked());
+                data.setLastVehicleTick(data.getTicksTracked());
                 data.setPreExitVehicleSpeed(event.getVehicle().getVelocity().length());
                 data.setNearVehicle(true);
+                Truthful.getInstance().getServerScheduler().runRegionLater(player, data::updateStateCache, 1L);
             }
         }
     }
@@ -210,6 +262,12 @@ public final class PlayerListener implements Listener {
                     }
                 }
             }
+
+            // Spear lunges can fire on hit as well - arm the same bounded
+            // window from the attack path so the dash is never judged.
+            if (data.isHoldingSpear()) {
+                data.armSpearLunge(20);
+            }
         }
     }
 
@@ -235,16 +293,16 @@ public final class PlayerListener implements Listener {
             }
         }
 
-        if (typeName.contains("SPEAR") || typeName.contains("TRIDENT") || typeName.contains("SWORD")) {
-            if (item.hasItemMeta()) {
-                String metaString = item.getItemMeta().toString().toLowerCase();
-                String displayName = item.getItemMeta().hasDisplayName() ? item.getItemMeta().getDisplayName().toLowerCase() : "";
-
-                if (displayName.contains("spear") || metaString.contains("lunge")) {
-                    data.setExemption(ExemptionType.SPEAR_LUNGE, 20);
-                    data.setVelocityExemption(20);
-                }
-            }
+        // Spear-family items: the lunge dash is applied client-side and never
+        // arrives as a server velocity packet, so movement checks cannot
+        // explain it. Arm a bounded window on use. Detection is MATERIAL
+        // based - the old display-name heuristic let anyone with an anvil
+        // rename a stick to "spear"/"lunge" and farm velocity immunity by
+        // spamming right-click. Custom items that need a dash should send the
+        // impulse as a server velocity packet, which the engine models
+        // honestly. The charged-release case is handled on RELEASE_USE_ITEM.
+        if (typeName.contains("SPEAR") || data.isHoldingSpear()) {
+            data.armSpearLunge(20);
         }
     }
 
@@ -253,6 +311,32 @@ public final class PlayerListener implements Listener {
         if (event.isCancelled()) {
             PlayerData data = this.dataManager.getPlayerData(event.getPlayer());
             if (data != null) data.setLastGhostBlockTick(data.getTicksTracked());
+        }
+    }
+
+    // Pistons move clients without any velocity packet. Record the push
+    // direction for nearby players so the movement engine can add a
+    // direction-bounded allowance instead of a blanket exemption.
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPistonExtend(org.bukkit.event.block.BlockPistonExtendEvent event) {
+        handlePiston(event.getBlock().getLocation(), event.getDirection().getModX(),
+                event.getDirection().getModY(), event.getDirection().getModZ());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPistonRetract(org.bukkit.event.block.BlockPistonRetractEvent event) {
+        // Retraction pulls entities back toward the piston.
+        handlePiston(event.getBlock().getLocation(), -event.getDirection().getModX(),
+                -event.getDirection().getModY(), -event.getDirection().getModZ());
+    }
+
+    private void handlePiston(Location pistonLoc, double dirX, double dirY, double dirZ) {
+        for (Player player : pistonLoc.getWorld().getPlayers()) {
+            if (player.getLocation().distanceSquared(pistonLoc) > 20 * 20) continue;
+            PlayerData data = this.dataManager.getPlayerData(player);
+            if (data != null) {
+                data.onPistonPush(dirX, dirY, dirZ);
+            }
         }
     }
 
@@ -272,13 +356,12 @@ public final class PlayerListener implements Listener {
         } else if (type == PacketType.Play.Client.CLOSE_WINDOW) {
             playerData.setInventoryOpen(false);
         } else if (type == PacketType.Play.Client.INTERACT_ENTITY) {
-            if (playerData.isInventoryOpen()) playerData.setInventoryOpen(false);
+            // Keep inventory open status for PacketOrderE evaluation
             playerData.setDigging(false);
             playerData.setLastAttackPacketTick(playerData.getTicksTracked());
         } else if (type == PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT) {
             ret.tawny.truthful.wrapper.impl.client.action.PlayerBlockPlacePacketWrapper cached = playerData.getCurrentBlockPlacement();
             if (cached != null) {
-                Truthful.getInstance().getScheduler().onPacketReceive(cached);
                 playerData.setLastBlockPlaceTime(System.currentTimeMillis());
                 playerData.setLastBlockPlaceTick(playerData.getTicksTracked());
             }
@@ -287,9 +370,33 @@ public final class PlayerListener implements Listener {
             if (playerData.isSlowItem()) {
                 playerData.setUsingItem(true, playerData.getTicksTracked());
             }
+        } else if (type == PacketType.Play.Client.PLAYER_INPUT) {
+            // 1.21.2+: the client reports its exact WASD/jump/shift/sprint
+            // state. This collapses the engine's input brute-force to a
+            // single exact candidate on modern clients.
+            try {
+                WrapperPlayClientPlayerInput input = new WrapperPlayClientPlayerInput(event);
+                playerData.getActionTracker().setClientInput(
+                        input.isForward(), input.isBackward(), input.isLeft(), input.isRight(),
+                        input.isJump(), input.isShift(), input.isSprint(),
+                        playerData.getTicksTracked());
+            } catch (Throwable ignored) {
+            }
+        } else if (type == PacketType.Play.Client.CLIENT_TICK_END) {
+            playerData.getActionTracker().markClientTickEnd(playerData.getTicksTracked());
         } else if (type == PacketType.Play.Client.STEER_VEHICLE) {
-            playerData.setInsideVehicleCache(true);
-            playerData.setLastVehicleTick(playerData.getTicksTracked());
+            // STEER_VEHICLE is just control input for the physics model - it
+            // must NEVER set vehicle membership state. The old code treated
+            // the packet as proof of riding, so one forged steer per 10
+            // packets kept isInsideVehicle() true forever and skipped most
+            // movement/velocity/timer checks. Membership comes from the
+            // server-trusted cache refreshed by the vehicle events below.
+            try {
+                WrapperPlayClientSteerVehicle steer = new WrapperPlayClientSteerVehicle(event);
+                playerData.getActionTracker().setVehicleSteer(
+                        steer.getForward(), steer.getSideways(), playerData.getTicksTracked());
+            } catch (Throwable ignored) {
+            }
         }
 
         if (type == PacketType.Play.Client.HELD_ITEM_CHANGE) {
@@ -305,8 +412,20 @@ public final class PlayerListener implements Listener {
                     playerData.setDigging(true);
                 } else if (dig.getAction() == DiggingAction.FINISHED_DIGGING || dig.getAction() == DiggingAction.CANCELLED_DIGGING) {
                     playerData.setDigging(false);
-                } else if (dig.getAction() == DiggingAction.RELEASE_USE_ITEM || dig.getAction() == DiggingAction.DROP_ITEM || dig.getAction() == DiggingAction.DROP_ITEM_STACK) {
+                } else if (dig.getAction() == DiggingAction.RELEASE_USE_ITEM
+                        || dig.getAction() == DiggingAction.DROP_ITEM
+                        || dig.getAction() == DiggingAction.DROP_ITEM_STACK) {
                     playerData.setUsingItem(false);
+
+                    // Charged spear lunge: RELEASE_USE_ITEM is the moment the
+                    // dash impulse actually fires. The interact-time window
+                    // has long lapsed for a held charge, so arm a fresh one
+                    // here - the cached "holding a spear" flag is refreshed
+                    // on the main thread, never read live from this thread.
+                    if (dig.getAction() == DiggingAction.RELEASE_USE_ITEM
+                            && playerData.isHoldingSpear()) {
+                        playerData.armSpearLunge(40);
+                    }
                 }
             } catch (Throwable t) {
                 Truthful.getInstance().getPlugin().getLogger().warning("[PlayerListener] Failed to parse PLAYER_DIGGING packet: " + t.getMessage());
@@ -318,6 +437,12 @@ public final class PlayerListener implements Listener {
                 case STOP_SPRINTING -> playerData.setSprinting(false);
                 case START_SNEAKING -> playerData.setSneaking(true);
                 case STOP_SNEAKING -> playerData.setSneaking(false);
+                case START_FALL_FLYING -> {
+                    if (playerData.canGlide()) {
+                        playerData.setGliding(true);
+                        playerData.setLastGlideTick(playerData.getTicksTracked());
+                    }
+                }
             }
         }
     }
@@ -330,7 +455,9 @@ public final class PlayerListener implements Listener {
 
         if (event.getPacketType() == PacketType.Play.Server.PLAYER_POSITION_AND_LOOK) {
             WrapperPlayServerPlayerPositionAndLook posLook = new WrapperPlayServerPlayerPositionAndLook(event);
-            SetPositionPacketWrapper wrapper = new SetPositionPacketWrapper(posLook, player, PacketType.Play.Server.PLAYER_POSITION_AND_LOOK);
+            SetPositionPacketWrapper wrapper = new SetPositionPacketWrapper(
+                    posLook, player, PacketType.Play.Server.PLAYER_POSITION_AND_LOOK,
+                    playerData.getX(), playerData.getY(), playerData.getZ());
             playerData.acceptTeleport(wrapper);
         }
     }

@@ -8,6 +8,7 @@ import ret.tawny.truthful.checks.api.Check;
 import ret.tawny.truthful.checks.api.CheckBuffer;
 import ret.tawny.truthful.checks.api.data.CheckData;
 import ret.tawny.truthful.checks.api.data.CheckType;
+import ret.tawny.truthful.data.ExemptionType;
 import ret.tawny.truthful.data.PlayerData;
 import ret.tawny.truthful.sync.VelocityQueue;
 import ret.tawny.truthful.wrapper.impl.client.position.RelMovePacketWrapper;
@@ -30,62 +31,56 @@ public final class VelocityB extends Check {
 
         VelocityQueue queue = data.getVelocities();
         if (queue.isEmpty()) return;
+        if (!queue.hasAcknowledgedVelocity(1, false)
+                || data.isUnderBlock() || data.isInLiquid() || data.isInWeb()
+                || data.isOnClimbable() || data.isNearVehicle() || data.isNearEntity()
+                || data.isGliding() || data.isRiptiding() || data.isExempt(ExemptionType.RIPTIDE)
+                || data.getVelocities().hasExplosionVelocity() || data.isInExplosionGraceWindow(1500L)
+                || data.isExempt(ExemptionType.SPEAR_LUNGE) || data.isExempt(ExemptionType.MACE_SMASH)
+                || data.isExempt(ExemptionType.WIND_CHARGE)
+                // KB onto a slime block/bed inverts vertical motion (bounce), which
+                // none of the candidates below model. Skip rather than misjudge it.
+                || data.getTicksTracked() - data.getLastSlimeTick() < 6) {
+            buffer.decrease(data.getPlayer(), 0.25D);
+            return;
+        }
 
         double actualY = data.getDeltaY();
         double lastY = data.getLastDeltaY();
-        boolean flagged = false;
-        double minVDev = Double.MAX_VALUE;
-        String flagReason = null;
-
-        for (VelocityQueue.VelocityEntry entry : queue) {
-            if (entry.isAcked() && entry.getAckTick() <= 1 && !entry.isExplosion()) {
-                Vector initialVel = entry.getCurrent();
-                double expectedY = initialVel.getY();
-
-                if (expectedY < 0.08D || data.isUnderBlock()) continue;
-
-                double gravity = data.getGravity();
-                int jumpBoost = data.getPotionLevel(PotionEffectType.JUMP_BOOST);
-                double baseJumpStrength = data.getJumpStrength() + (jumpBoost * 0.1D);
-
-                // Candidate 1: Standard gravity continuation + velocity impulse
-                double predGravity = (lastY - gravity) * 0.98D + expectedY;
-
-                // Candidate 2: Jump takeoff + velocity impulse
-                double predJumpPlusVel = baseJumpStrength + expectedY;
-
-                double predPureJump = baseJumpStrength;
-
-                // Candidate 4: Direct Velocity Impulse
-                double predDirect = expectedY;
-
-                double dev1 = Math.abs(actualY - predGravity);
-                double dev2 = Math.abs(actualY - predJumpPlusVel);
-                double dev3 = Math.abs(actualY - predPureJump);
-                double dev4 = Math.abs(actualY - predDirect);
-
-                double bestDev = Math.min(dev1, Math.min(dev2, Math.min(dev3, dev4)));
-                if (bestDev < minVDev) {
-                    minVDev = bestDev;
-                }
-
-                double allowedVDev = 0.08D; // Expanded to 0.08m for sub-tick jump timing
-
-                if (minVDev > allowedVDev && !data.isServerGround()) {
-                    flagged = true;
-                    flagReason = String.format("Vertical Impulse Fail Y=%.4f expectedY=%.4f dev=%.4f",
-                            actualY, expectedY, minVDev);
-                }
-            }
+        Vector receivedVelocity = queue.getAcknowledgedVelocityVector(1, false);
+        double expectedY = receivedVelocity.getY();
+        if (expectedY < 0.08D || data.isServerGround()) {
+            buffer.decrease(data.getPlayer(), 0.25D);
+            return;
         }
 
-        if (flagged) {
-            flag(data, flagReason, 2.0 + (minVDev * 8.0));
-            if (buffer.increase(data.getPlayer(), 1.5) > 5.0D) {
+        double gravity = data.getGravity();
+        int jumpBoost = data.getPotionLevel(PotionEffectType.JUMP_BOOST);
+        double baseJumpStrength = data.getJumpStrength() + (jumpBoost * 0.1D);
+        double predGravity = (lastY - gravity) * 0.98D + expectedY;
+        double predJumpPlusVel = baseJumpStrength + expectedY;
+        double predPureJump = baseJumpStrength;
+        double predDirect = expectedY;
+        double minVDev = Math.min(Math.abs(actualY - predGravity), Math.min(
+                Math.abs(actualY - predJumpPlusVel), Math.min(
+                        Math.abs(actualY - predPureJump), Math.abs(actualY - predDirect))));
+
+        double allowedVDev = 0.11D + Math.min(0.08D, data.getPing() * 0.0004D);
+        if (minVDev > allowedVDev) {
+            double excess = minVDev - allowedVDev;
+            if (buffer.increase(data.getPlayer(), 1.0D + excess * 7.0D) > 5.0D) {
+                double kbRes;
+                try {
+                    kbRes = data.getKnockbackResistance();
+                } catch (Throwable ignored) {
+                    kbRes = 0.0D;
+                }
+                flag(data, String.format("Vertical Impulse Fail Y=%.4f expectedY=%.4f dev=%.4f allowed=%.4f kbRes=%.2f",
+                        actualY, expectedY, minVDev, allowedVDev, kbRes), 1.5D + excess * 8.0D);
                 buffer.reset(data.getPlayer(), 2.0D);
             }
         } else {
-            buffer.decrease(data.getPlayer(), 0.15D);
+            buffer.decrease(data.getPlayer(), 0.3D);
         }
     }
 

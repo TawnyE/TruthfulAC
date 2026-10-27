@@ -26,12 +26,22 @@ public final class SprintB extends Check {
         final PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
         if (data == null) return;
 
-        if (player.getGameMode() != GameMode.SURVIVAL ||
+        if (data.getGameMode() != GameMode.SURVIVAL ||
                 data.isAllowFlight() || data.isGliding() || data.isInsideVehicle()) {
             return;
         }
 
         if (!data.isSprinting()) {
+            buffer.decrease(player, 0.5);
+            return;
+        }
+
+        // Airborne momentum is not steering: a legit player can turn 180
+        // mid-jump while the velocity vector still points the old way. The
+        // old airborne zero-limit flagged every such turn, so this check now
+        // only judges grounded ticks (which is where omni-sprint actually
+        // manifests).
+        if (!data.isOnGround()) {
             buffer.decrease(player, 0.5);
             return;
         }
@@ -49,7 +59,6 @@ public final class SprintB extends Check {
         double limit = 0.4;
 
         if (Math.abs(data.getDeltaYaw()) > 1.5) limit = 0.25;
-        if (!data.isOnGround()) limit = 0.0;
 
         if (dot < limit) {
             double multiplier = (dot < -0.2) ? 2.0 : 1.0;

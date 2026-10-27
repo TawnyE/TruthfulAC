@@ -53,7 +53,7 @@ public final class LagA extends Check {
         Player player = (Player) event.getPlayer();
         PlayerData data = Truthful.getInstance().getDataManager().getPlayerData(player);
         if (data == null || data.isExempt()
-                || player.getGameMode() == GameMode.CREATIVE
+                || data.getGameMode() == GameMode.CREATIVE
                 || Truthful.getInstance().isBedrockPlayer(player)) return;
 
         pendingAttacks.computeIfAbsent(player.getUniqueId(), k -> new ConcurrentLinkedQueue<>())
@@ -68,7 +68,7 @@ public final class LagA extends Check {
     }
 
     @Override
-    public void onRelMove(final RelMovePacketWrapper wrapper) {
+    public void handleRelMove(final RelMovePacketWrapper wrapper) {
         Player player = wrapper.getPlayer();
         PlayerData data = wrapper.getPlayerData();
         if (data == null) return;
@@ -86,7 +86,9 @@ public final class LagA extends Check {
             CompensationTracker.CompensatedEntity comp = tracker.getEntityData(record.entityId);
             if (comp == null) continue;
 
-            int backtrackTicks = (int) Math.min(record.pingAtAttack / 50L, CompensationTracker.MAX_BACKTRACK_TICKS);
+            // One-way latency (RTT/2): that's the point in time whose hitbox the
+            // client was actually seeing when it swung.
+            int backtrackTicks = (int) Math.min(record.pingAtAttack / 100L, CompensationTracker.MAX_BACKTRACK_TICKS);
             int currentTick = tracker.getCurrentTick();
 
             SimpleHitbox historical = comp.getHitboxAt(backtrackTicks, currentTick);
@@ -119,15 +121,10 @@ public final class LagA extends Check {
                 continue;
             }
 
-            if (currDist > maxReach + 0.02D) {
-                double over = currDist - maxReach;
-                if (buffer.increase(player, 1.0 + over * 2.0) > 10.0) {
-                    flag(data, String.format("Reach curr=%.3f max=%.3f over=%.3f", currDist, maxReach, over));
-                    buffer.reset(player, 4.5);
-                }
-            } else {
-                buffer.decrease(player, 0.6);
-            }
+            // NOTE: no standalone reach enforcement here by design - LagA
+            // detects delayed-packet (backtrack) abuse patterns only. Plain
+            // reach belongs to ReachA's two-stage verdict.
+            buffer.decrease(player, 0.6);
         }
     }
 
@@ -139,7 +136,9 @@ public final class LagA extends Check {
         boolean hit = box.intersectsRay(origin, dir, RAY_MAX_DIST);
         double dBox = box.distance(origin);
         if (hit) return Math.min(dBox, rayEntryDistance(box, origin, dir));
-        return box.distance(origin) > 0.03D ? box.distance(origin) : -1.0;
+        // Origin inside/on the box means the attack is a clean hit at any distance metric.
+        // Previously returned -1.0 here, which the caller misread as proof of backtrack abuse.
+        return box.distance(origin) > 0.03D ? box.distance(origin) : 0.0;
     }
 
     private double rayEntryDistance(SimpleHitbox box, Vector origin, Vector dir) {

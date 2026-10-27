@@ -9,6 +9,8 @@ import com.github.retrooper.packetevents.util.Vector3i;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerBlockPlacement;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerDigging;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.util.Vector;
 import ret.tawny.truthful.Truthful;
 import ret.tawny.truthful.checks.api.Check;
@@ -106,5 +108,10 @@ public final class RaycastA extends Check {
     private int floor(double v) {
         int i = (int) v;
         return v < i ? i - 1 : i;
+    }
+
+    @EventHandler
+    public void onQuit(final PlayerQuitEvent event) {
+        buffer.remove(event.getPlayer());
     }
 }

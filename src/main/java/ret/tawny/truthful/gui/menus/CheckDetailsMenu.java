@@ -36,6 +36,7 @@ public final class CheckDetailsMenu {
 
         Configuration config = Truthful.getInstance().getConfiguration();
         boolean checkEnabled = this.check.isEnabled();
+        String lagbackRaw = config.getCheckLagbackRaw(this.check.getType().name(), String.valueOf(this.check.getOrder()));
         boolean lagbackEnabled = config.isCheckLagbackEnabled(this.check.getType().name(), String.valueOf(this.check.getOrder()));
         boolean punishmentEnabled = config.isPunishmentEnabled(this.check.getType().name(), String.valueOf(this.check.getOrder()));
 
@@ -45,13 +46,17 @@ public final class CheckDetailsMenu {
         List<String> checkLore = new ArrayList<>();
         checkLore.add("");
         checkLore.add(GuiConstants.metric("Status", checkStatusStr));
+        if (!this.check.getTags().isEmpty()) {
+            checkLore.add(GuiConstants.metric("Tags", GuiConstants.SECONDARY + String.join(", ", this.check.getTags())));
+        }
         checkLore.add("");
         checkLore.add(GuiConstants.SECONDARY + "Click to toggle");
 
         ItemStack checkItem = GuiItemFactory.create(woolMat, (checkEnabled ? GuiConstants.SUCCESS : GuiConstants.ERROR) + GuiConstants.BOLD + "Check Status", checkLore);
 
-        Material lagbackMat = lagbackEnabled ? GuiConstants.getMat("SLIME_BLOCK") : GuiConstants.getMat("MAGMA_BLOCK");
-        String lagbackStatusStr = lagbackEnabled ? GuiConstants.SUCCESS + "On" : GuiConstants.ERROR + "Off";
+        boolean inherit = lagbackRaw == null || lagbackRaw.equalsIgnoreCase("inherit");
+        Material lagbackMat = inherit ? GuiConstants.getMat("ANVIL") : lagbackEnabled ? GuiConstants.getMat("SLIME_BLOCK") : GuiConstants.getMat("MAGMA_BLOCK");
+        String lagbackStatusStr = inherit ? "&7Inherit" : lagbackEnabled ? GuiConstants.SUCCESS + "On" : GuiConstants.ERROR + "Off";
 
         List<String> lagbackLore = new ArrayList<>();
         lagbackLore.add("");
@@ -79,7 +84,32 @@ public final class CheckDetailsMenu {
         inv.setItem(10, checkItem);
         inv.setItem(12, lagbackItem);
         inv.setItem(14, punishmentItem);
-        inv.setItem(16, backItem);
+        if (this.check.rejectsPackets()) {
+            boolean cancelOn = config.isCheckCancelEnabled(
+                    this.check.getType().name(), String.valueOf(this.check.getOrder()));
+
+            Material cancelMat = cancelOn ? GuiConstants.getMat("BARRIER") : GuiConstants.getMat("GLOWSTONE");
+            String cancelStatusStr = cancelOn
+                    ? GuiConstants.SUCCESS + "Reject (security default)"
+                    : GuiConstants.ERROR + "Observe only";
+
+            List<String> cancelLore = new ArrayList<>();
+            cancelLore.add("");
+            cancelLore.add(GuiConstants.metric("Mode", cancelStatusStr));
+            cancelLore.add(GuiConstants.MUTED + "Direct packet rejection,");
+            cancelLore.add(GuiConstants.MUTED + "independent of punishment");
+            cancelLore.add(GuiConstants.MUTED + "and lagback switches.");
+            cancelLore.add("");
+            cancelLore.add(GuiConstants.SECONDARY + "Click to toggle");
+
+            ItemStack cancelItem = GuiItemFactory.create(cancelMat,
+                    (cancelOn ? GuiConstants.SUCCESS : GuiConstants.ERROR) + GuiConstants.BOLD + "Packet Rejection",
+                    cancelLore);
+            inv.setItem(16, cancelItem);
+            inv.setItem(22, backItem);
+        } else {
+            inv.setItem(16, backItem);
+        }
 
         player.openInventory(inv);
     }

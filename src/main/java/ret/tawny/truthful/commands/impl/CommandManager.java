@@ -272,8 +272,8 @@ public class CommandManager implements CommandExecutor, TabCompleter {
 
             if (sub.equals("debug")) {
                 String partial = args[1].toLowerCase();
-                List<String> options = new ArrayList<>(Arrays.asList("all", "off", "SimulationA", "SimulationB",
-                        "SimulationC", "SimulationF", "ReachA", "HitboxA", "TimerA", "VelocityA"));
+                List<String> options = new ArrayList<>(Arrays.asList("all", "off", "Simulation",
+                        "ReachA", "HitboxA", "TimerA", "VelocityA"));
                 return options.stream().filter(s -> s.toLowerCase().startsWith(partial)).collect(Collectors.toList());
             }
 

@@ -34,7 +34,10 @@ public final class GuiClickHandler implements Listener {
 
         Player player = (Player) e.getWhoClicked();
         ItemStack item = e.getCurrentItem();
+        // Meta can exist without a display name; stripColor(null) NPEs.
+        if (!item.getItemMeta().hasDisplayName()) return;
         String name = ChatColor.stripColor(item.getItemMeta().getDisplayName());
+        if (name == null) name = "";
         Material mat = item.getType();
         String matName = mat.name();
 
@@ -166,13 +169,31 @@ public final class GuiClickHandler implements Listener {
             new CheckDetailsMenu(check).open(player);
         } else if (name.contains("Lagback Status")) {
             playSound(player, Sound.BLOCK_NOTE_BLOCK_PLING);
-            boolean newState = !config.isCheckLagbackEnabled(typeName, orderStr);
-            config.setCheckLagbackEnabled(typeName, orderStr, newState);
+            // Three-state cycler: inherit -> true -> false -> inherit.
+            // inherit pulls the global lagback profile, true/false force.
+            String currentRaw = config.getCheckLagbackRaw(typeName, orderStr);
+            String next;
+            if (currentRaw == null || currentRaw.equalsIgnoreCase("inherit")) {
+                next = "true";
+            } else if (currentRaw.equalsIgnoreCase("true")) {
+                next = "false";
+            } else {
+                next = "inherit";
+            }
+            config.setCheckLagbackRaw(typeName, orderStr, next);
             new CheckDetailsMenu(check).open(player);
         } else if (name.contains("Punishment Status")) {
             playSound(player, Sound.BLOCK_NOTE_BLOCK_PLING);
             boolean newState = !config.isPunishmentEnabled(typeName, orderStr);
             config.setPunishmentEnabled(typeName, orderStr, newState);
+            new CheckDetailsMenu(check).open(player);
+        } else if (name.contains("Packet Rejection")) {
+            // Observe-only switch for checks that reject packets directly.
+            // Independent of punishment/lagback: off = flags/alerts fire but
+            // the packet passes through.
+            playSound(player, Sound.BLOCK_NOTE_BLOCK_PLING);
+            boolean newState = !config.isCheckCancelEnabled(typeName, orderStr);
+            config.setCheckCancelEnabled(typeName, orderStr, newState);
             new CheckDetailsMenu(check).open(player);
         }
     }

@@ -21,6 +21,10 @@ public final class FlagRecorder {
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
     private final Map<UUID, Long> lastFlagLogTimes = new ConcurrentHashMap<>();
 
+    public void onQuit(UUID uuid) {
+        lastFlagLogTimes.remove(uuid);
+    }
+
     public void recordFlag(PlayerData data, String checkName, String details, double buffer, double threshold) {
         if (data == null || data.getPlayer() == null) return;
         Player player = data.getPlayer();

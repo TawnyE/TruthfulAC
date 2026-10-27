@@ -3,47 +3,36 @@ package ret.tawny.truthful.version;
 import org.bukkit.Bukkit;
 import ret.tawny.truthful.version.impl.VersionAdapter_Modern;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
+/**
+ * Resolves the running server version once at boot and hands out the
+ * version-gated adapter. Understands both legacy "1.x" and year-based
+ * "26.x" Bukkit version strings.
+ */
 public final class VersionManager {
-    private IVersionAdapter adapter;
+    private volatile IVersionAdapter adapter;
 
     public void load() {
-        try {
-            Pattern pattern = Pattern.compile("1\\.(\\d{1,2})");
-            Matcher matcher = pattern.matcher(Bukkit.getServer().getBukkitVersion());
+        final String raw = Bukkit.getServer().getBukkitVersion();
+        final ServerVersion version = ServerVersion.parse(raw);
 
-            if (matcher.find()) {
-                int minorVersion = Integer.parseInt(matcher.group(1));
-
-                if (minorVersion < 20) {
-                    Bukkit.getLogger().warning("[Truthful] Detected legacy server version (1." + minorVersion + ").");
-                    Bukkit.getLogger().warning("[Truthful] TruthfulAC v2.3+ is designed for 1.20+. Stability is not guaranteed.");
-                }
-
-                // We now strictly use the Modern adapter for everything.
-                // 1.8/Legacy support has been dropped to streamline physics and attribute handling.
-                this.adapter = new VersionAdapter_Modern(minorVersion);
-                Bukkit.getLogger().info("[Truthful] Loaded Modern Version Adapter (1." + minorVersion + "+).");
-
-            } else {
-                throw new IllegalStateException("Could not determine server version from Bukkit version string: " + Bukkit.getServer().getBukkitVersion());
-            }
-
-        } catch (Exception e) {
-            Bukkit.getLogger().severe("[Truthful] Failed to load version adapter! The plugin may not function correctly.");
-            e.printStackTrace();
-            // Fallback to modern if parsing fails, assuming 1.20+ context
-            this.adapter = new VersionAdapter_Modern(20);
+        if (version.isLegacy() && version.compareTo(ServerVersion.V1_20_4) < 0) {
+            Bukkit.getLogger().warning("[Truthful] Detected legacy server version (" + version.display()
+                    + "). TruthfulAC is designed for 1.20.4+. Stability is not guaranteed.");
         }
+
+        this.adapter = new VersionAdapter_Modern(version);
+        Bukkit.getLogger().info("[Truthful] Version profile: " + version.display()
+                + (version.isAtLeast(ServerVersion.V26_2) ? " (26.2+ physics gates active)" : ""));
     }
 
     public IVersionAdapter getAdapter() {
-        if (this.adapter == null) {
-            // Should not happen if load() is called on startup
-            this.adapter = new VersionAdapter_Modern(20);
+        final IVersionAdapter local = this.adapter;
+        if (local != null) return local;
+        synchronized (this) {
+            if (this.adapter == null) {
+                this.adapter = new VersionAdapter_Modern(ServerVersion.V1_20_4);
+            }
+            return this.adapter;
         }
-        return this.adapter;
     }
 }

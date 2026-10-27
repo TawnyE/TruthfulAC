@@ -21,6 +21,15 @@ public final class VelocityD extends Check {
         final PlayerData data = wrapper.getPlayerData();
         if (data == null) return;
 
+        // Transaction probes are what acknowledge velocity entries. With them
+        // disabled nothing ever acks and every entry reads as "withheld", so
+        // this check only runs while the probe system is on (the old behavior
+        // flooded flags on ordinary movement with it off).
+        if (!ret.tawny.truthful.Truthful.getInstance().getConfiguration().isTransactionPingEnabled()) {
+            buffer.decrease(data.getPlayer(), 0.25D);
+            return;
+        }
+
         if (data.isServerFrozen() || data.isTeleportTick() || data.isMovementExempt()) {
             buffer.decrease(data.getPlayer(), 0.25D);
             return;
@@ -28,6 +37,11 @@ public final class VelocityD extends Check {
 
         VelocityQueue queue = data.getVelocities();
         if (queue.isEmpty()) return;
+        if (data.isInLiquid() || data.isInWeb() || data.isOnClimbable()
+                || data.isNearVehicle() || data.isNearEntity() || data.isUnderBlock()) {
+            buffer.decrease(data.getPlayer(), 0.25D);
+            return;
+        }
 
         double deltaXZ = data.getDeltaXZ();
         boolean flagged = false;
@@ -35,25 +49,26 @@ public final class VelocityD extends Check {
         String flagReason = null;
 
         for (VelocityQueue.VelocityEntry entry : queue) {
-            if (!entry.isAcked()) {
-                int ticksPending = entry.getAckTick();
+            if (!entry.isAcked() && !entry.isExplosion()) {
+                int ticksPending = entry.getAgeTick();
+                int allowedPendingTicks = 6 + (int) Math.ceil(Math.min(300L, data.getPing()) / 50.0D);
                 // Flag moving players who withhold velocity transaction ACKs
-                if (ticksPending > 4 && deltaXZ > 0.12D) {
+                if (ticksPending > allowedPendingTicks && deltaXZ > 0.15D) {
                     flagged = true;
-                    severity += deltaXZ * 10.0D;
-                    flagReason = String.format("Moving while withholding velocity ACKs (pendingTicks=%d) dist=%.4f",
-                            ticksPending, deltaXZ);
+                    severity += (deltaXZ - 0.15D) * 10.0D + 0.5D;
+                    flagReason = String.format("Moving while withholding velocity ACKs (pendingTicks=%d allowed=%d dist=%.4f)",
+                            ticksPending, allowedPendingTicks, deltaXZ);
                 }
             }
         }
 
         if (flagged) {
-            flag(data, flagReason, severity);
             if (buffer.increase(data.getPlayer(), severity) > 8.0D) {
+                flag(data, flagReason, Math.max(1.0D, severity));
                 buffer.reset(data.getPlayer(), 2.0D);
             }
         } else {
-            buffer.decrease(data.getPlayer(), 0.1D);
+            buffer.decrease(data.getPlayer(), 0.2D);
         }
     }
 

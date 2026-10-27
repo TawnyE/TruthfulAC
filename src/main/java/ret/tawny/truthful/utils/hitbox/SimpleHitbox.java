@@ -18,6 +18,18 @@ public class SimpleHitbox {
     }
 
     // Expand the hitbox (for leniency)
+    /** Returns an expanded copy of this hitbox without mutating the original. */
+    public SimpleHitbox cloneExpand(double expansion) {
+        SimpleHitbox copy = new SimpleHitbox(0, 0, 0, 1, 1);
+        copy.minX = this.minX - expansion;
+        copy.minY = this.minY - expansion;
+        copy.minZ = this.minZ - expansion;
+        copy.maxX = this.maxX + expansion;
+        copy.maxY = this.maxY + expansion;
+        copy.maxZ = this.maxZ + expansion;
+        return copy;
+    }
+
     public void expand(double expansion) {
         this.minX -= expansion;
         this.minY -= expansion;
@@ -33,6 +45,12 @@ public class SimpleHitbox {
         double dy = Math.max(Math.max(minY - point.getY(), 0), point.getY() - maxY);
         double dz = Math.max(Math.max(minZ - point.getZ(), 0), point.getZ() - maxZ);
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    public boolean isVecInside(Vector point) {
+        return point.getX() >= minX && point.getX() <= maxX
+                && point.getY() >= minY && point.getY() <= maxY
+                && point.getZ() >= minZ && point.getZ() <= maxZ;
     }
 
     /**

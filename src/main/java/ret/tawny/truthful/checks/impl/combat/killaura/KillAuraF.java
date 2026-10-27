@@ -96,7 +96,17 @@ public final class KillAuraF extends Check {
                 for (int z = pz - 1; z <= pz + 1; z++) {
                     WrappedBlockState state = world.getBlockState(x, y, z);
                     String name = state.getType().getName().toUpperCase();
-                    if (name.contains("STAIR") || name.contains("SLAB") || name.contains("STEP")) {
+                    // Anything you step UP onto with a sub-0.2 deltaY flips ground
+                    // state on its own: stairs/slabs plus the thin-block family
+                    // (snow layers, carpet, path, farmland, beds...).
+                    if (name.contains("STAIR") || name.contains("SLAB") || name.contains("STEP")
+                            || name.contains("SNOW") || name.contains("CARPET") || name.contains("BED")
+                            || name.contains("CHEST") || name.contains("DIRT_PATH") || name.contains("FARMLAND")
+                            || name.contains("DAYLIGHT") || name.contains("REPEATER") || name.contains("COMPARATOR")
+                            || name.contains("TRAPDOOR") || name.contains("SCAFFOLDING") || name.contains("CAKE")
+                            || name.contains("SNOW_LAYER") || name.contains("ENCHANTING_TABLE")
+                            || name.contains("POTION_STAND") || name.contains("BREWING_STAND")
+                            || name.contains("HEAD") || name.contains("SKULL") || name.contains("LANTERN")) {
                         return true;
                     }
                 }

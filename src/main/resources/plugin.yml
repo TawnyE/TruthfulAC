@@ -1,5 +1,5 @@
 name: TruthfulAC
-version: '0.9'
+version: 'v0.9-FH2'
 main: ret.tawny.truthful.TruthfulPlugin
 api-version: '1.21'
 author: Tawny(CodeControl)
@@ -7,6 +7,8 @@ description: Multi-version anti-cheat with modernized movement and combat checks
 load: POSTWORLD
 depend:
   - packetevents
+softdepend:
+  - floodgate
 folia-supported: true
 
 commands:

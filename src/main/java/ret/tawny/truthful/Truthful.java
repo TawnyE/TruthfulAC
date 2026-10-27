@@ -13,7 +13,6 @@ import ret.tawny.truthful.commands.impl.CommandAlerts;
 import ret.tawny.truthful.commands.impl.CommandManager;
 import ret.tawny.truthful.commands.impl.CommandBanwave;
 import ret.tawny.truthful.compensation.CompensationTracker;
-import ret.tawny.truthful.compensation.Scheduler;
 import ret.tawny.truthful.config.api.Configuration;
 import ret.tawny.truthful.data.DataManager;
 import ret.tawny.truthful.data.PlayerData;
@@ -36,16 +35,26 @@ import java.lang.reflect.Method;
 public final class Truthful {
     private static final Truthful INSTANCE = new Truthful();
 
-    public static final boolean USE_MODERN_PING = true;
-
     private Method getTPSMethod = null;
     private boolean getTPSMethodFetched = false;
+
+    // Folia has no global TPS API; the Paper reflection path fails there and
+    // the old fallback returned a constant 20.0 - silently disabling the
+    // min-tps kill-switch. Instead, measure the health of the global
+    // scheduler itself: the transaction probe timer is scheduled at a fixed
+    // tick interval, so the ratio of scheduled to observed wall-time gaps IS
+    // the effective tick rate.
+    private volatile long lastProbeTimerRunNanos = 0L;
+    private volatile double measuredTps = 20.0D;
+    // Hot-path TPS: refreshed once per tick by the global timer. Checks used
+    // to reflectively invoke Bukkit.getServer().getTPS() dozens of times per
+    // movement packet through canCheck -> isExempt -> shouldSkipChecks.
+    private volatile double cachedTps = 20.0D;
 
     private VersionManager versionManager;
     private CheckRegistry checkManager;
     private DataManager dataManager;
     private ret.tawny.truthful.data.world.GlobalWorldCache globalWorldCache;
-    private Scheduler scheduler;
     private CompensationTracker compensationTracker;
     private PlayerListener playerListener;
     private LogManager logManager;
@@ -69,7 +78,6 @@ public final class Truthful {
         this.versionManager = new VersionManager();
         this.dataManager = new DataManager();
         this.globalWorldCache = new ret.tawny.truthful.data.world.GlobalWorldCache();
-        this.scheduler = new Scheduler();
         this.logManager = new LogManager(plugin);
         this.guiManager = new GuiManager();
         this.debugManager = new DebugManager();
@@ -110,22 +118,51 @@ public final class Truthful {
         if (resetMinutes > 0) {
             long ticks = (long) resetMinutes * 60 * 20L;
             this.serverScheduler.runGlobalTimer(() -> {
-                checkManager.resetAllViolations();
-                for (PlayerData data : dataManager.getCollection()) {
-                    data.resetTotalViolations();
+                try {
+                    checkManager.resetAllViolations();
+                    for (PlayerData data : dataManager.getCollection()) {
+                        data.resetTotalViolations();
+                    }
+                } catch (Throwable t) {
+                    plugin.getLogger().warning("[Truthful] Violation reset task error: " + t.getMessage());
                 }
             }, ticks, ticks);
         }
 
         this.serverScheduler.runGlobalTimer(() -> {
-            if (compensationTracker != null) {
-                compensationTracker.tick();
+            try {
+                // One reflective TPS read per tick, shared by every check.
+                refreshTpsCache();
+                if (compensationTracker != null) {
+                    compensationTracker.tick();
+                }
+                banwaveManager.tickAutoStart();
+                // Exemptions decay once per SERVER TICK, not per packet -
+                // packet-counted windows are stretchable with fake lag.
+                for (PlayerData data : dataManager.getCollection()) {
+                    data.tickExemptions();
+                }
+            } catch (Throwable t) {
+                // A single bad tick must never cancel the repeating timer.
+                plugin.getLogger().warning("[Truthful] Tick task error: " + t.getMessage());
             }
-            banwaveManager.tickAutoStart();
         }, 1L, 1L);
+
+        // Rotate the per-tick block-write dedup window (see BlockWriteDedup)
+        this.serverScheduler.runGlobalTimer(ret.tawny.truthful.utils.world.BlockWriteDedup::rotateAll, 1L, 1L);
 
         final long transactionInterval = getConfiguration().getTransactionPingIntervalTicks();
         this.serverScheduler.runAsyncTimer(() -> {
+            try {
+            // Kill-switch for disconnect diagnosis. Off means zero outbound
+            // packets from this timer. Velocity, timer and lagback checks all
+            // go half-blind without it, so default stays on.
+            if (!getConfiguration().isTransactionPingEnabled()) return;
+
+            long nowNanos = System.nanoTime();
+            updateMeasuredTps(nowNanos, transactionInterval);
+            this.lastProbeTimerRunNanos = nowNanos;
+
             for (PlayerData data : dataManager.getCollection()) {
                 Player player = data.getPlayer();
                 if (player == null || !player.isOnline() || isBedrockPlayer(player)) {
@@ -135,17 +172,55 @@ public final class Truthful {
                 short id = (short) data.getNextTransactionId();
                 data.recordTransactionSent(id);
 
-                if (USE_MODERN_PING) {
-                    PacketEvents.getAPI().getPlayerManager().sendPacket(player, new WrapperPlayServerPing(id));
-                } else {
-                    PacketEvents.getAPI().getPlayerManager().sendPacket(player,
-                            new WrapperPlayServerWindowConfirmation(0, id, false));
+                PacketEvents.getAPI().getPlayerManager().sendPacket(player, new WrapperPlayServerPing(id));
+
+                // Latency kicker: sustained high transaction ping => kick.
+                // Ping-spoofers and lag-exploiters park an inflated ping to
+                // farm latency leniency; a sustained threshold breaches that.
+                if (getConfiguration().isPingKickEnabled()) {
+                    long ping = data.getPing();
+                    if (ping >= getConfiguration().getPingKickThreshold()) {
+                        if (data.getHighPingStartTime() == 0L) {
+                            data.setHighPingStartTime(System.currentTimeMillis());
+                        } else if (System.currentTimeMillis() - data.getHighPingStartTime()
+                                >= getConfiguration().getPingKickDuration() * 1000L) {
+                            data.setHighPingStartTime(0L);
+                            final Player victim = player;
+                            final String kickMessage = getConfiguration().getPingKickMessage();
+                            this.serverScheduler.runRegion(victim, () -> {
+                                if (victim.isOnline()) {
+                                    victim.kickPlayer(kickMessage);
+                                }
+                            });
+                        }
+                    } else {
+                        data.setHighPingStartTime(0L);
+                    }
                 }
+            }
+            } catch (Throwable t) {
+                plugin.getLogger().warning("[Truthful] Transaction probe task error: " + t.getMessage());
             }
         }, transactionInterval, transactionInterval);
     }
 
+    private void updateMeasuredTps(long nowNanos, long scheduledIntervalTicks) {
+        long last = this.lastProbeTimerRunNanos;
+        if (last <= 0L || scheduledIntervalTicks <= 0L) return;
+        long gapNanos = nowNanos - last;
+        if (gapNanos <= 0L) return;
+        double scheduledNanos = scheduledIntervalTicks * 50_000_000L;
+        double observed = 20.0D * (scheduledNanos / (double) gapNanos);
+        // Clamp to plausible server tick rates so a scheduling hiccup can't
+        // read as 200 TPS.
+        observed = Math.max(0.5D, Math.min(20.0D, observed));
+        // EMA smoothing: fast enough to catch real lag, slow enough to
+        // ignore single-timer jitter.
+        this.measuredTps = (this.measuredTps * 3.0D + observed) / 4.0D;
+    }
+
     public void shutdown() {
+        if (serverScheduler != null) serverScheduler.shutdownWorldCache();
         if (logManager != null) logManager.shutdown();
         if (banwaveManager != null) banwaveManager.stop();
         if (dataManager != null) dataManager.teardownAll();
@@ -179,7 +254,6 @@ public final class Truthful {
     public Plugin getPlugin() { return plugin; }
     public PlayerListener getPlayerListener() { return playerListener; }
     public ret.tawny.truthful.utils.ServerScheduler getServerScheduler() { return serverScheduler; }
-    public Scheduler getScheduler() { return scheduler; }
     public CompensationTracker getCompensationTracker() { return compensationTracker; }
     public LogManager getLogManager() { return logManager; }
     public GuiManager getGuiManager() { return guiManager; }
@@ -195,19 +269,36 @@ public final class Truthful {
         if (this.checkManager != null) this.checkManager.init();
     }
 
-    public double getTps() {
+    /**
+     * Refreshes the hot-path TPS cache. Runs on the main/global thread from
+     * the 1-tick timer; the reflective read happens once per tick instead of
+     * once per canCheck() call on the packet threads.
+     */
+    private void refreshTpsCache() {
         try {
             if (!getTPSMethodFetched) {
                 getTPSMethodFetched = true;
                 try {
                     getTPSMethod = Bukkit.getServer().getClass().getMethod("getTPS");
-                } catch (Throwable ignored) {}
+                } catch (Throwable ignored) {
+                }
             }
             if (getTPSMethod != null) {
                 final Object value = getTPSMethod.invoke(Bukkit.getServer());
-                if (value instanceof double[] tps && tps.length > 0) return tps[0];
+                if (value instanceof double[] tps && tps.length > 0) {
+                    cachedTps = tps[0];
+                    return;
+                }
             }
-        } catch (Throwable t) {}
-        return 20.0;
+        } catch (Throwable ignored) {
+        }
+        // Paper API absent (Folia): fall back to measured scheduler health
+        // instead of a fake constant 20.0.
+        cachedTps = measuredTps;
+    }
+
+    /** Cached server TPS, safe and cheap on packet threads. */
+    public double getTps() {
+        return cachedTps;
     }
 }

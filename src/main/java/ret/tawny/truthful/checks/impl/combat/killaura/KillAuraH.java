@@ -46,7 +46,10 @@ public final class KillAuraH extends Check {
         if (data == null || data.isExempt())
             return;
 
-        long now = System.currentTimeMillis();
+        // nanoTime is monotonic and not subject to the 15.6ms granularity of
+        // the Windows default tick clock (which literally manufactures the
+        // low-variance/quantized interval pattern this check flags).
+        long now = System.nanoTime() / 1_000_000L;
         IntervalData intervalData = dataMap.computeIfAbsent(player.getUniqueId(), k -> new IntervalData());
 
         if (intervalData.lastAttackTime > 0) {

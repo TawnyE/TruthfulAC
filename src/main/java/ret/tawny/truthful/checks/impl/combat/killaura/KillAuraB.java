@@ -41,6 +41,10 @@ public final class KillAuraB extends Check {
             return;
 
         // === 1. ANGLE CHECK (Omni-Sprint in Combat) ===
+        // Strafing (W+A/W+D) legitimately swings the movement vector up to
+        // ~45 degrees off the look while sprinting; rapid A/D mashing makes
+        // it swing further transiently via momentum. Only clearly BACKWARD
+        // sprint (>~70 degrees off look) with real speed is impossible.
         if (data.isSprinting() && data.getDeltaXZ() > 0.22) {
 
             if (data.hasVelocity() || data.isExempt(ExemptionType.VELOCITY)) {
@@ -53,8 +57,8 @@ public final class KillAuraB extends Check {
 
             double dot = move.dot(look);
 
-            // 0.6 = ~53 degrees.
-            if (dot < 0.6) {
+            // 0.3 = ~72 degrees: backwards or near-sideways sprint at speed.
+            if (dot < 0.3) {
                 if (buffer.increase(player, 1.0) > 6.0) {
                     flag(data, String.format("Directional Sprint. Dot: %.2f", dot));
                     buffer.reset(player, 3.0);
@@ -66,16 +70,27 @@ public final class KillAuraB extends Check {
         // === 2. KEEP SPRINT CHECK ===
         int ticksSinceLastHit = data.getTicksTracked() - data.getLastHitTick();
 
-        if (ticksSinceLastHit < 3 && ticksSinceLastHit >= 0) {
+        if (ticksSinceLastHit < 3 && ticksSinceLastHit >= 1) {
             if (data.isOnGround() && data.isSprinting()) {
                 // If taking velocity, speed might be weird
                 if (data.hasVelocity())
                     return;
 
-                if (data.getDeltaXZ() > 0.27) {
+                // Landing ticks carry sprint-jump momentum: the attack slow
+                // hasn't fully applied yet - exempt the first ticks back on
+                // the ground (PvP jump-attacking is legit).
+                if (data.getAirTicks() == 0 && data.getPositionTracker().getLastAirTicks() > 2)
+                    return;
+
+                if (data.getDeltaXZ() > 0.30) {
                     if (isNearIce(data))
                         return;
                     if (data.isExempt(ExemptionType.VELOCITY))
+                        return;
+                    // Speed potions push legit sprint speed past this floor
+                    // (Speed II sprinting is ~0.39/tick) - without this the
+                    // check flagged ordinary potion PvP.
+                    if (data.getPotionLevel(org.bukkit.potion.PotionEffectType.SPEED) > 0)
                         return;
 
                     if (buffer.increase(player, 1.5) > 8.0) {

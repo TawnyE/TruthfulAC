@@ -20,7 +20,6 @@ import java.util.List;
 public final class PlayerInfoMenu {
 
     private static final DecimalFormat COORD = new DecimalFormat("0.00");
-    private static final DecimalFormat SPEED = new DecimalFormat("0.000");
 
     public static String getTitle(String playerName) {
         String pluginName = Truthful.getInstance().getConfiguration().getPluginDisplayName();
@@ -154,8 +153,10 @@ public final class PlayerInfoMenu {
         List<String> lore = new ArrayList<>();
 
         if (sensPercent < 0) {
+            int samples = data.getSensitivitySampleCount();
             lore.add(GuiConstants.MUTED + "Learning rotation step...");
-            lore.add(GuiConstants.DARK + "Player needs to rotate camera.");
+            lore.add(GuiConstants.DARK + "Progress: " + GuiConstants.HIGHLIGHT + samples + "/8 " + GuiConstants.MUTED + "samples");
+            lore.add(GuiConstants.DARK + "Rotate mouse vertically/horizontally.");
             return lore;
         }
 
